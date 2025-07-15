@@ -1,65 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { auth, db } from '../../firebase';
+import { doc, setDoc, collection, getDocs } from 'firebase/firestore';
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import AddUserModal from '../../components/AddUserModal';
 
 const UsersView = () => {
-  const [users, setUsers] = useState([
-    {
-      id: 1,
-      fullName: "Admin One",
-      age: 35,
-      birthdate: "1988-03-10",
-      address: "123 Admin Street",
-      phone: "+1 555 123 4567",
-      email: "admin1@gorescue.com",
-      gender: "Male",
-      status: "Active",
-      role: "Admin",
-      photoUrl: ""
-    },
-    {
-      id: 2,
-      fullName: "Admin Two",
-      age: 32,
-      birthdate: "1991-07-22",
-      address: "456 Admin Avenue",
-      phone: "+1 555 987 6543",
-      email: "admin2@gorescue.com",
-      gender: "Female",
-      status: "Active",
-      role: "Admin",
-      photoUrl: ""
-    },
-    {
-      id: 3,
-      fullName: "John Responder",
-      age: 28,
-      birthdate: "1995-05-15",
-      address: "123 Rescue St",
-      phone: "+1 234 567 8901",
-      email: "john@gorescue.com",
-      gender: "Male",
-      status: "Active",
-      role: "Responder",
-      photoUrl: ""
-    },
-    {
-      id: 4,
-      fullName: "Jane Dispatcher",
-      age: 30,
-      birthdate: "1993-08-12",
-      address: "456 Dispatch Ave",
-      phone: "+1 987 654 3210",
-      email: "jane@gorescue.com",
-      gender: "Female",
-      status: "Active",
-      role: "Dispatcher",
-      photoUrl: ""
-    }
-  ]);
-
+  const [users, setUsers] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({});
-  const [showRoleModal, setShowRoleModal] = useState(false);
-  const [selectedUserId, setSelectedUserId] = useState(null);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUser, setNewUser] = useState({
     fullName: '',
@@ -74,12 +22,28 @@ const UsersView = () => {
     status: 'Active'
   });
 
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, "mdrrmo-users"));
+        const fetchedUsers = [];
+        querySnapshot.forEach((doc) => {
+          fetchedUsers.push({ ...doc.data(), id: doc.id });
+        });
+        setUsers(fetchedUsers);
+      } catch (error) {
+        console.error("Error fetching users from Firestore:", error);
+      }
+    };
+
+    fetchUsers();
+  }, []);
+
   const calculateAge = (birthdate) => {
     const today = new Date();
     const birthDate = new Date(birthdate);
     let age = today.getFullYear() - birthDate.getFullYear();
     const monthDiff = today.getMonth() - birthDate.getMonth();
-
     if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
       age--;
     }
@@ -95,9 +59,31 @@ const UsersView = () => {
     setEditingId(null);
   };
 
-  const handleSave = (id) => {
-    setUsers(users.map(user => user.id === id ? { ...formData } : user));
-    setEditingId(null);
+  const handleSave = async () => {
+    try {
+      const cleanedFormData = {
+        ...formData,
+        role: String(formData.role || ''),
+        status: String(formData.status || '')
+      };
+
+      console.log("Saving user with ID:", editingId);
+      console.log("Cleaned Form Data:", cleanedFormData);
+
+      const userRef = doc(db, "mdrrmo-users", editingId);
+      await setDoc(userRef, cleanedFormData, { merge: true });
+
+      const querySnapshot = await getDocs(collection(db, "mdrrmo-users"));
+      const updatedUsers = [];
+      querySnapshot.forEach((doc) => {
+        updatedUsers.push({ ...doc.data(), id: doc.id });
+      });
+      setUsers(updatedUsers);
+      setEditingId(null);
+    } catch (error) {
+      console.error("🔥 Error during handleSave:", error);
+      alert("Failed to save changes. Check console for details.");
+    }
   };
 
   const handleChange = (e) => {
@@ -115,44 +101,45 @@ const UsersView = () => {
     }
   };
 
-  const openRoleModal = (userId) => {
-    setSelectedUserId(userId);
-    setShowRoleModal(true);
-  };
+  const handleAddUser = async (userData) => {
+    const auth = getAuth();
+    const tempPassword = "Temp1234!";
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, userData.email, tempPassword);
+      const uid = userCredential.user.uid;
 
-  const updateUserRole = (role) => {
-    setUsers(users.map(user => user.id === selectedUserId ? { ...user, role } : user));
-    setShowRoleModal(false);
-  };
+      const newUserDoc = {
+        ...userData,
+        uid,
+        createdAt: new Date().toISOString()
+      };
 
-  const handleAddUser = () => {
-    setUsers([
-      ...users,
-      {
-        ...newUser,
-        id: Math.max(...users.map(u => u.id)) + 1,
-        age: parseInt(newUser.age) || 0,
-        photoUrl: ""
-      }
-    ]);
-    setShowAddUserModal(false);
-    setNewUser({
-      fullName: '',
-      email: '',
-      phone: '',
-      birthdate: '',
-      age: '',
-      address: '',
-      nationality: '',
-      gender: 'Male',
-      role: 'Responder',
-      status: 'Active'
-    });
+      await setDoc(doc(db, "mdrrmo-users", uid), newUserDoc);
+      setUsers(prev => [...prev, { ...newUserDoc, id: uid }]);
+
+      setShowAddUserModal(false);
+      setNewUser({
+        fullName: '',
+        email: '',
+        phone: '',
+        birthdate: '',
+        age: '',
+        address: '',
+        nationality: '',
+        gender: 'Male',
+        role: 'Responder',
+        status: 'Active'
+      });
+
+      alert(`User created! Temporary password: ${tempPassword}`);
+    } catch (error) {
+      console.error("Error adding user:", error);
+      alert(error.message);
+    }
   };
 
   const handleNewUserChange = (e) => {
     const { name, value } = e.target;
-
     if (name === 'birthdate') {
       const age = calculateAge(value);
       setNewUser(prev => ({
@@ -179,17 +166,15 @@ const UsersView = () => {
       <div className="admin-users">
         <h3>Administrators</h3>
         <div className="admin-list">
-          {users
-            .filter(user => user.role === "Admin")
-            .map(admin => (
-              <div key={admin.id} className="admin-card">
-                <div className="admin-info">
-                  <h4>{admin.fullName}</h4>
-                  <p>{admin.email}</p>
-                </div>
-                <span className="admin-badge">Admin</span>
+          {users.filter(user => user.role === "Admin").map(admin => (
+            <div key={admin.id} className="admin-card">
+              <div className="admin-info">
+                <h4>{admin.fullName}</h4>
+                <p>{admin.email}</p>
               </div>
-            ))}
+              <span className="admin-badge">Admin</span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -227,7 +212,7 @@ const UsersView = () => {
                 </div>
                 <div className="form-actions">
                   <button className="btn btn-outline" onClick={handleCancel}>Cancel</button>
-                  <button className="btn btn-primary" onClick={() => handleSave(user.id)}>Save</button>
+                  <button className="btn btn-primary" onClick={handleSave}>Save</button>
                 </div>
               </div>
             ) : (
@@ -235,8 +220,12 @@ const UsersView = () => {
                 <div className="user-header">
                   <h3>{user.fullName}</h3>
                   <div className="user-meta">
-                    <span className={`user-status ${user.status.toLowerCase()}`}>{user.status}</span>
-                    <span className={`user-role ${user.role.toLowerCase()}`}>{user.role}</span>
+                    <span className={`user-status ${String(user.status || '').toLowerCase()}`}>
+                      {user.status || 'Unknown'}
+                    </span>
+                    <span className={`user-role ${String(user.role || '').toLowerCase()}`}>
+                      {user.role || 'Unknown'}
+                    </span>
                   </div>
                 </div>
                 <div className="user-details">
@@ -258,9 +247,6 @@ const UsersView = () => {
                       <option value="Unavailable">Unavailable</option>
                       <option value="Inactive">Inactive</option>
                     </select>
-                    <button className="btn btn-outline" onClick={() => openRoleModal(user.id)}>
-                      Change Role
-                    </button>
                   </div>
                   <button
                     className="btn btn-primary"
@@ -276,18 +262,16 @@ const UsersView = () => {
         ))}
       </div>
 
-      {/* Add User Modal */}
       {showAddUserModal && (
-        <div className="modal-overlay">
-          {/* Add modal content (as you already have it) */}
-        </div>
-      )}
-
-      {/* Role Change Modal */}
-      {showRoleModal && (
-        <div className="modal-overlay">
-          {/* Add role modal content (as you already have it) */}
-        </div>
+        <AddUserModal
+          show={showAddUserModal}
+          onSubmit={handleAddUser}
+          onClose={() => setShowAddUserModal(false)}
+          onAddUser={handleAddUser}
+          newUser={newUser}
+          setNewUser={setNewUser}
+          handleNewUserChange={handleNewUserChange}
+        />
       )}
     </div>
   );

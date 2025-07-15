@@ -5,6 +5,7 @@ import ReportLogsView from './DispatcherViews/ReportLogsView';
 import TeamOrganizerView from './DispatcherViews/TeamOrganizerView';
 import IncidentHistoryView from './DispatcherViews/IncidentHistoryView';
 import '../pages/DispatcherViews/DispatchStyle/DispatcherPage.css';
+import '../App.css';
 import Logo from '../assets/GoRescueLogo.webp';
 import L from 'leaflet';
 import { emergencyTypes } from '../constants/dispatchConstants';

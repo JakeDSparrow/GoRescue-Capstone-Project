@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getAuth } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import DashboardView from './AdminViews/DashBoardView';
 import AnnouncementsView from './AdminViews/AnnouncementsView';
-import ArchivesView from './AdminViews/ArchivesView'; // If you plan to use this later
+import ArchivesView from './AdminViews/ArchivesView'; 
 import UsersView from './AdminViews/UsersView';
 import SettingsView from './AdminViews/SettingsView';
 import Logo from '../assets/GoRescueLogo.webp';
@@ -10,6 +13,45 @@ import "../pages/AdminViews/AdminStyle/AdminPage.css";
 const AdminDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeView, setActiveView] = useState('dashboard-view');
+
+
+
+  useEffect(() => {
+    const auth = getAuth();
+    const user = auth.currentUser;
+
+    console.log("Current ID:", auth.currentUser?.uid);
+    
+    if (user) {
+      const checkRole = async () => {
+        try {
+          const userDoc = await getDoc(doc(db, "mdrrmo-users", user.uid));
+          if (userDoc.exists()) {
+            const role = userDoc.data().role;
+            console.log("User Role:", role);
+
+            if (role !== "admin") {
+              alert("Access denied. Only admins can view this page.");
+              window.location.href = "/"; // Redirect to home or login
+            }
+          } else {
+            console.warn("No Firestore document found for this user.");
+            alert("No user data found. Please contact admin.");
+            window.location.href = "/";
+          }
+        } catch (err) {
+          console.error("Role check failed:", err);
+          alert("Failed to verify admin privileges.");
+          window.location.href = "/";
+        }
+      };
+
+      checkRole();
+    } else {
+      console.warn("Not signed in.");
+      window.location.href = "/";
+    }
+  }, []);
 
   return (
     <div className="admin-page">
