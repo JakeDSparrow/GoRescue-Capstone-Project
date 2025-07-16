@@ -1014,3 +1014,231 @@ body.dark-mode .btn-outline {
     justify-content: center;
   }
 }
+
+/* === REQUESTS VIEW FIXED STYLES === */
+.requests-container {
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.requests-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.requests-header h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--dark);
+}
+
+/* Request Cards */
+.request-card {
+  background: white;
+  padding: 1.5rem;
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.request-card h3 {
+  font-size: 1.25rem;
+  color: var(--primary-dark);
+}
+
+.request-card p {
+  font-size: 0.95rem;
+  color: var(--dark);
+  line-height: 1.5;
+}
+
+/* Action Button */
+.request-card button.btn {
+  align-self: flex-start;
+  margin-top: 0.5rem;
+}
+
+/* Modal Fix (optional - override if needed) */
+.react-modal {
+  width: 100%;
+  max-width: 600px;
+  background: white;
+  padding: 2rem;
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+  margin: auto;
+}
+
+.react-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.status-badge {
+  border-radius: 1rem;
+  font-weight: 500;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.status-badge.pending {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status-badge.approved {
+  background-color: #cce5ff;
+  color: #004085;
+}
+
+.status-badge.completed {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.btn {
+  transition: all 0.2s ease-in-out;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  opacity: 0.9;
+}
+
+.status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 1rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.status-badge.pending {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status-badge.approved {
+  background-color: #cce5ff;
+  color: #004085;
+}
+
+.status-badge.completed {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+/* RequestsView Layout Enhancements */
+.request-card .request-details{
+  max-width: 700px;
+  margin: auto;
+  border-radius: 10px;
+  border: 1px solid #eee;
+  background-color: #fff;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.02);
+}
+
+.request-card .request-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.request-card .status-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.request-card .status-wrapper select {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.85rem;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--gray);
+  background-color: white;
+  color: var(--dark);
+}
+
+/* Action button alignment */
+.request-card .request-actions {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 1rem; /* space between buttons */
+  margin-top: 1rem;
+  flex-wrap: wrap; /* wrap on small screens */
+}
+
+.request-card .btn {
+  min-width: 130px;
+  padding: 0.45rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: var(--border-radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.request-card .btn i {
+  font-size: 0.9rem;
+}
+
+.request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1rem;
+  position: relative;
+  z-index: 1;
+}
+
+.request-actions .btn {
+  min-width: 130px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: var(--border-radius);
+  padding: 0.5rem 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.request-actions .btn:hover {
+  transform: translateY(-1px);
+  opacity: 0.95;
+}
+
+
+@media (max-width: 600px) {
+  .request-card .request-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .request-card .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

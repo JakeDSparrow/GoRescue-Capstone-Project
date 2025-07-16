@@ -4,6 +4,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import DashboardView from './AdminViews/DashBoardView';
 import AnnouncementsView from './AdminViews/AnnouncementsView';
+import RequestsView from './AdminViews/RequestsView';
 import ArchivesView from './AdminViews/ArchivesView'; 
 import UsersView from './AdminViews/UsersView';
 import SettingsView from './AdminViews/SettingsView';
@@ -14,14 +15,12 @@ const AdminDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeView, setActiveView] = useState('dashboard-view');
 
-
-
   useEffect(() => {
     const auth = getAuth();
     const user = auth.currentUser;
 
     console.log("Current ID:", auth.currentUser?.uid);
-    
+
     if (user) {
       const checkRole = async () => {
         try {
@@ -89,6 +88,13 @@ const AdminDashboard = () => {
               <span>Announcements</span>
             </button>
             <button
+              className={`menu-item ${activeView === 'requests-view' ? 'active' : ''}`}
+              onClick={() => setActiveView('requests-view')}
+            >
+              <i className="fas fa-file-alt"></i>
+              <span>Requests</span>
+            </button>
+            <button
               className={`menu-item ${activeView === 'archives-view' ? 'active' : ''}`}
               onClick={() => setActiveView('archives-view')}
             >
@@ -116,6 +122,7 @@ const AdminDashboard = () => {
         <main className="main-content">
           {activeView === 'dashboard-view' && <DashboardView />}
           {activeView === 'announcements-view' && <AnnouncementsView />}
+          {activeView === 'requests-view' && <RequestsView />}
           {activeView === 'archives-view' && <ArchivesView />}
           {activeView === 'users-view' && <UsersView />}
           {activeView === 'settings-view' && <SettingsView />}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import './modalstyles/ModalStyles.css'; // Reuse your existing modal styles
+import './modalstyles/AdminModalStyles.css'; // Reuse your existing modal styles
 
 export default function AddUserModal({ onClose, onSubmit }) {
   const [formData, setFormData] = useState({
