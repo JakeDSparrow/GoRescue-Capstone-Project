@@ -198,59 +198,70 @@
   background-color: rgba(0, 0, 0, 0.02);
 }
 
-/*== Team Organizer == */
+/*=== Team styles===*/
 .dispatcher-page .teams-container {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
   margin-top: 20px;
 }
 
 .dispatcher-page .team-card {
-  border: 1px solid #ccc;
+  padding: 16px 20px;
+  border: 1px solid #e0e0e0;
   border-radius: var(--radius);
-  background-color: var(--light);
+  background-color: #ffffff;
   box-shadow: var(--shadow);
-  padding: 20px;
+  transition: transform 0.2s ease;
+}
+
+.dispatcher-page .team-card:hover {
+  transform: translateY(-4px);
 }
 
 .dispatcher-page .team-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #ddd;
 }
 
 .dispatcher-page .team-card h3 {
-  font-size: 1.1rem;
-  font-weight: bold;
-  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #222;
 }
 
 .dispatcher-page .edit-button {
-  background-color: var(--primary);
+  background-color: var(--primary); 
   color: white;
-  border: none;
-  padding: 6px 12px;
+  font-size: 0.9rem;
+  padding: 6px 14px;
   border-radius: 6px;
-  cursor: pointer;
-  transition: background-color var(--transition);
 }
 
 .dispatcher-page .edit-button:hover {
   background-color: #5a763b;
 }
 
-.dispatcher-page .team-card-body {
-  background-color: #f8f8f8;
-  border-radius: 6px;
-  padding: 12px;
+.dispatcher-page .team-card-body ul {
+  list-style: none; /* 🔥 Remove bullet points */
+  padding: 0;
+  margin: 0;
+}
+
+.dispatcher-page .team-card-body ul li {
+  margin-bottom: 10px;
+  font-size: 0.95rem;
+  color: #333;
 }
 
 .dispatcher-page .no-members {
   font-style: italic;
-  color: #666;
-  margin: 0;
+  color: #888;
+  text-align: center;
 }
 
 /* === Map View === */

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getAuth } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -67,6 +68,23 @@ const AdminDashboard = () => {
           <img src={Logo} alt="GoRescue" className="logo" />
           <div className="user-menu">
             <div className="user-avatar">AD</div>
+            <button 
+              className="logout-button"
+              onClick={async () => {
+                const auth = getAuth();
+                try {
+                  await auth.signOut();
+                  window.location.href = "/"; 
+                } catch (error) {
+                  console.error("Logout failed", error);
+                  alert("Logout failed.");
+                }
+              }}
+              aria-label="Logout"
+              title="Logout"
+            >
+              <i className="fas fa-sign-out-alt"></i>
+            </button>
           </div>
         </div>
 

@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
+import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
 import LiveMapView from './DispatcherViews/LiveMapView';
 import NotificationsView from './DispatcherViews/NotificationsView';
 import ReportLogsView from './DispatcherViews/ReportLogsView';
@@ -15,9 +16,54 @@ export default function DispatcherPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [reportLogs, setReportLogs] = useState([]);
-  const [teams, setTeams] = useState({ alpha: [], bravo: [] });
+  const [teams, setTeams] = useState({
+    alpha: {
+      teamLeader: null,
+      emt1: null,
+      emt2: null,
+      ambulanceDriver: null
+    },
+    bravo: {
+      teamLeader: null,
+      emt1: null,
+      emt2: null,
+      ambulanceDriver: null
+    }
+  });
+
+  useEffect(() => {
+    const loadResponders = async () => {
+      try {
+        const db = getFirestore();
+        const querySnapshot = await getDocs(collection(db, 'mdrrmo-users'));
+
+        const allUsers = querySnapshot.docs.map(doc => ({
+          uid: doc.id,
+          ...doc.data()
+        }));
+
+        console.log("All Users:", allUsers); // <== See all user objects
+
+        const filtered = allUsers.filter(user =>
+          user.role?.toLowerCase() === 'responder' 
+          && (user.status?.toLowerCase() !== 'inactive' || user.status === undefined)
+        );
+
+        console.log("Filtered Responders:", filtered); // <== Check what remains
+
+        setResponders(filtered);
+      } catch (error) {
+        console.error('Error loading responders:', error);
+      }
+    };
+
+    loadResponders();
+  }, []);
+
+
   const [currentTeam, setCurrentTeam] = useState(null);
   const mapRef = useRef(null);
+  const [responders, setResponders] = useState([]);
 
   const toggleSidebar = () => setSidebarCollapsed(!sidebarCollapsed);
 
@@ -145,8 +191,7 @@ export default function DispatcherPage() {
     ),
     'team-organizer-view': (
       <TeamOrganizerView
-        teams={teams}
-        openTeamEditor={openTeamEditor}
+        responders={responders}
       />
     ),
     'incident-history-view': (
@@ -155,7 +200,7 @@ export default function DispatcherPage() {
       />
     )
   };
-
+ 
   return (
     <div className='dispatcher-page'>
       {

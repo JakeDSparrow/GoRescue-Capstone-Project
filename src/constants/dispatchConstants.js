@@ -1,3 +1,24 @@
+export const initialTeams = {
+  alpha: {
+    label: 'Team Alpha',
+    members: {
+      teamLeader: null,
+      emt1: null,
+      emt2: null,
+      ambulanceDriver: null,
+    },
+  },
+  bravo: {
+    label: 'Team Bravo',
+    members: {
+      teamLeader: null,
+      emt1: null,
+      emt2: null,
+      ambulanceDriver: null,
+    },
+  },
+};
+
 export const emergencyTypes = {
   medical: {
     icon: 'fa-plus-square',

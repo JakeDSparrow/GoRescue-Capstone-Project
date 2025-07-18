@@ -85,6 +85,18 @@ body {
   font-weight: 600;
 }
 
+.logout-button {
+  background: none;
+  border: none;
+  color: #4361ee;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.logout-button:hover {
+  color: #f44336; /* red on hover */
+}
+
 /* ========== Sidebar ========== */
 .admin-page .sidebar {
   width: var(--sidebar-width);
