@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { doc, setDoc, getFirestore } from 'firebase/firestore';
-import '../components/modalstyles/TeamEditorModalStyles.css';
+import './modalstyles/TeamEditorModalStyles.css';
 
 const roleLabels = {
   teamLeader: 'Team Leader',
@@ -9,7 +8,14 @@ const roleLabels = {
   ambulanceDriver: 'Ambulance Driver'
 };
 
-export default function TeamEditorModal({ isOpen, onClose, teamDate, currentTeam = {}, responders, onSave }) {
+export default function TeamEditorModal({
+  isOpen,
+  onClose,
+  teamDate,
+  currentTeam = {},
+  responders,
+  onSave
+}) {
   const [formState, setFormState] = useState({});
 
   useEffect(() => {
@@ -21,35 +27,44 @@ export default function TeamEditorModal({ isOpen, onClose, teamDate, currentTeam
     onClose();
   };
 
-  return isOpen && (
+  if (!isOpen) return null;
+
+  return (
     <div className="modal-backdrop">
       <div className="modal">
         <div className="modal-content">
-          <h3>Edit TEAM {teamDate.toUpperCase()}</h3>
+          <h2>Edit Deck for Team {teamDate.toUpperCase()}</h2>
 
-          {Object.entries(roleLabels).map(([roleKey, roleName]) => (
-            <div className="form-group" key={roleKey}>
-              <label>{roleName}</label>
-              <select
-                value={formState[roleKey]?.uid || ''}
-                onChange={e => {
-                  const res = responders.find(r => r.uid === e.target.value);
-                  setFormState(prev => ({ ...prev, [roleKey]: res }));
-                }}
-              >
-                <option value="">-- Not assigned --</option>
-                {responders.map(r => (
-                  <option key={r.uid} value={r.uid} disabled={r.status === 'unavailable'}>
-                    {r.fullName || r.name}{r.status === 'unavailable' ? ' (Unavailable)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))}
+          <div className="form-section">
+            {Object.entries(roleLabels).map(([roleKey, label]) => (
+              <div className="form-group" key={roleKey}>
+                <label>{label}</label>
+                <select
+                  value={formState[roleKey]?.uid || ''}
+                  onChange={e => {
+                    const selected = responders.find(r => r.uid === e.target.value);
+                    setFormState(prev => ({ ...prev, [roleKey]: selected }));
+                  }}
+                >
+                  <option value="">-- Not assigned --</option>
+                  {responders.map(r => (
+                    <option
+                      key={r.uid}
+                      value={r.uid}
+                      disabled={r.status === 'unavailable'}
+                    >
+                      {r.fullName || r.name}
+                      {r.status === 'unavailable' ? ' (Unavailable)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
 
           <div className="modal-actions">
-            <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleSave}>Save</button>
+            <button onClick={onClose} className="btn btn-secondary">Cancel</button>
+            <button onClick={handleSave} className="btn btn-primary">Save</button>
           </div>
         </div>
       </div>
