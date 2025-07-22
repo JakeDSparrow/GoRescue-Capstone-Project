@@ -60,14 +60,21 @@ export default function TeamOrganizerView() {
 
   const handleSave = async (teamKey, deckIndex, updatedDeck) => {
     const docId = `${teamKey}-${deckIndex}`;
-    await setDoc(doc(db, 'teams', docId), updatedDeck);
+
+    const deckWithTimestamp = {
+      ...updatedDeck,
+      createdAt: updatedDeck.createdAt || new Date().toISOString(),
+    };
+
+    await setDoc(doc(db, 'teams', docId), deckWithTimestamp);
 
     setTeams(prev => {
       const updated = { ...prev };
-      updated[teamKey][deckIndex] = updatedDeck;
+      updated[teamKey][deckIndex] = deckWithTimestamp;
       return updated;
     });
   };
+
 
   const addDeck = (teamKey) => {
     setTeams(prev => {
@@ -123,8 +130,16 @@ export default function TeamOrganizerView() {
 
             {teams[teamKey]?.map((deck, idx) => (
               <div className={`deck-card ${deck.currentTeam ? 'active' : ''}`} key={idx}>
+                {/* Deck Header */}
                 <div className="deck-header">
-                <strong>Deck {idx + 1}</strong>
+                  <div className="deck-title-group">
+                    <strong>Deck {idx + 1}</strong>
+                    {deck.createdAt && (
+                      <span className="deck-timestamp">
+                        • Created: {new Date(deck.createdAt).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
                   <div className="deck-controls">
                     <button className="edit-button" onClick={() => handleEdit(teamKey, idx)}>
                       ✏️ Edit
@@ -140,6 +155,8 @@ export default function TeamOrganizerView() {
                     )}
                   </div>
                 </div>
+
+                {/* Deck Body */}
                 <div className="deck-body">
                   {Object.entries(roleLabels).map(([roleKey, label]) => {
                     const iconMap = {
@@ -166,19 +183,45 @@ export default function TeamOrganizerView() {
         ))}
       </div>
 
-      {isModalOpen && (
-        <TeamEditorModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          teamDate={selectedTeamKey}
-          currentTeam={teams[selectedTeamKey][selectedDeckIndex]}
-          responders={responders}
-          onSave={(teamKey, data) => {
-            handleSave(teamKey, selectedDeckIndex, data);
-            setIsModalOpen(false);
-          }}
-        />
-      )}
+      {(() => {
+          const assignedUids = new Set();
+
+          // Go through all decks in all teams
+          Object.values(teams).forEach(teamDecks => {
+            teamDecks.forEach(deck => {
+              Object.values(deck).forEach(role => {
+                if (role?.uid) {
+                  assignedUids.add(role.uid);
+                }
+              });
+            });
+          });
+
+          // Get current deck (so we can allow its members to stay selectable)
+          const currentDeck = teams[selectedTeamKey]?.[selectedDeckIndex];
+
+          // Build a filtered list of responders
+          const filteredResponders = responders.filter(responder => {
+            return (
+              !assignedUids.has(responder.uid) || 
+              Object.values(currentDeck || {}).some(role => role?.uid === responder.uid)
+            );
+          });
+
+          return (
+            <TeamEditorModal
+              isOpen={isModalOpen}
+              onClose={() => setIsModalOpen(false)}
+              teamDate={selectedTeamKey}
+              currentTeam={currentDeck}
+              responders={filteredResponders}
+              onSave={(teamKey, data) => {
+                handleSave(teamKey, selectedDeckIndex, data);
+                setIsModalOpen(false);
+              }}
+            />
+          );
+        })()}
     </div>
   );
 }
