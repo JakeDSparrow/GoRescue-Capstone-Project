@@ -1,5 +1,5 @@
 import React from 'react';
-import { emergencyTypeMap } from '../../constants/dispatchConstants';
+import { emergencyTypeMap, statusMap } from '../../constants/dispatchConstants';
 
 export default function NotificationsView({
   notifications,
@@ -7,6 +7,7 @@ export default function NotificationsView({
   dispatchAllResponders,
   viewOnMap
 }) {
+
   return (
     <div className="notifications-container">
       <h2 className="view-title">Emergency Notifications</h2>
@@ -19,6 +20,8 @@ export default function NotificationsView({
         <div className="notification-list">
           {notifications.map(notification => {
             const typeMeta = emergencyTypeMap[notification.type] || {};
+            const statusMeta = statusMap[notification.status] || {};
+
             return (
               <div
                 key={notification.id}
@@ -28,6 +31,22 @@ export default function NotificationsView({
                 <h3 className="notification-header">
                   <i className={`fas ${typeMeta.icon}`} style={{ color: typeMeta.color, marginRight: '8px' }} />
                   {typeMeta.label || notification.type} – {notification.location}
+
+                  {notification.status && (
+                    <span
+                      className="status-badge"
+                      style={{
+                        backgroundColor: statusMeta.color,
+                        color: '#fff',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        marginLeft: '10px'
+                      }}
+                    >
+                      {statusMeta.label}
+                    </span>
+                  )}
                 </h3>
 
                 <p><strong>Reporter:</strong> {notification.reporter} ({notification.reporterContact})</p>

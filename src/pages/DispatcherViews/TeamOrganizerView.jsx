@@ -25,23 +25,63 @@ export default function TeamOrganizerView() {
   const db = getFirestore();
 
   useEffect(() => {
-    const loadTeams = async () => {
-      const snapshot = await getDocs(collection(db, 'teams'));
-      const result = { alpha: [], bravo: [] };
+  const loadTeams = async () => {
+    const snapshot = await getDocs(collection(db, 'teams'));
+    const rawTeams = { alpha: [], bravo: [] };
 
-      snapshot.forEach(docSnap => {
-        const [teamKey, index] = docSnap.id.split('-');
-        const idx = parseInt(index, 10);
-        if (!result[teamKey]) return;
-        result[teamKey][idx] = { ...defaultTeamDeck, ...docSnap.data() };
+    snapshot.forEach(docSnap => {
+      const [teamKey, index] = docSnap.id.split('-');
+      const idx = parseInt(index, 10);
+      if (!rawTeams[teamKey]) return;
+      rawTeams[teamKey][idx] = { ...defaultTeamDeck, ...docSnap.data() };
+    });
+
+    const now = new Date();
+    const rotatedTeams = {};
+
+    for (const teamKey of ['alpha', 'bravo']) {
+      const decks = rawTeams[teamKey] || [];
+
+      // Sort decks by index to be safe
+      const sortedDecks = decks.sort((a, b) => {
+        const aDate = new Date(a?.createdAt || 0);
+        const bDate = new Date(b?.createdAt || 0);
+        return aDate - bDate;
       });
 
-      setTeams(result);
-    };
+      // If first deck is expired, rotate
+      const firstDeck = sortedDecks[0];
+      const isExpired = firstDeck?.createdAt &&
+        now - new Date(firstDeck.createdAt) > 24 * 60 * 60 * 1000;
 
-    const loadResponders = async () => {
-      const snapshot = await getDocs(collection(db, 'mdrrmo-users'));
-      const allUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+      if (isExpired) {
+        const rotated = [
+          sortedDecks[1] || { ...defaultTeamDeck },
+          sortedDecks[2] || { ...defaultTeamDeck },
+          { ...defaultTeamDeck, createdAt: now.toISOString() }, // new empty deck
+        ];
+
+        // Overwrite Firestore with new order
+        await Promise.all(
+          rotated.map((deck, i) =>
+            setDoc(doc(db, 'teams', `${teamKey}-${i}`), deck)
+          )
+        );
+
+        rotatedTeams[teamKey] = rotated;
+      } else {
+        rotatedTeams[teamKey] = sortedDecks;
+      }
+    }
+
+    setTeams(rotatedTeams);
+  };
+
+
+
+  const loadResponders = async () => {
+    const snapshot = await getDocs(collection(db, 'mdrrmo-users'));
+    const allUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
       const filtered = allUsers.filter(
         u => u.role?.toLowerCase() === 'responder' && u.status !== 'inactive'
       );
@@ -89,29 +129,6 @@ export default function TeamOrganizerView() {
     });
   };
 
-
-  const handleDeleteDeck = async (teamKey, deckIndex) => {
-    const updated = { ...teams };
-    updated[teamKey].splice(deckIndex, 1);
-
-    // Delete all documents under the teamKey to avoid leftovers
-    const existingDocs = await getDocs(collection(db, 'teams'));
-    const deleteOps = [];
-    existingDocs.forEach(docSnap => {
-      const [key, idx] = docSnap.id.split('-');
-      if (key === teamKey) deleteOps.push(deleteDoc(doc(db, 'teams', docSnap.id)));
-    });
-    await Promise.all(deleteOps);
-
-    // Re-save the updated team decks with new indexes
-    const saveOps = updated[teamKey].map((deck, index) =>
-      setDoc(doc(db, 'teams', `${teamKey}-${index}`), deck)
-    );
-    await Promise.all(saveOps);
-
-    setTeams(updated);
-  };
-
   return (
     <div className="team-organizer-container">
       <h2>Team Organizer</h2>
@@ -120,13 +137,6 @@ export default function TeamOrganizerView() {
         {['alpha', 'bravo'].map(teamKey => (
           <div key={teamKey} className="team-section">
             <h3>{`Team ${teamKey.toUpperCase()}`}</h3>
-            <button
-              className="add-deck-btn"
-              onClick={() => addDeck(teamKey)}
-              disabled={teams[teamKey]?.length >= 3}
-            >
-              + Add Deck
-            </button>
 
             {teams[teamKey]?.map((deck, idx) => (
               <div className={`deck-card ${deck.currentTeam ? 'active' : ''}`} key={idx}>
@@ -144,15 +154,6 @@ export default function TeamOrganizerView() {
                     <button className="edit-button" onClick={() => handleEdit(teamKey, idx)}>
                       ✏️ Edit
                     </button>
-                    {teams[teamKey]?.length > 1 && (
-                      <button
-                        className="delete-button"
-                        onClick={() => handleDeleteDeck(teamKey, idx)}
-                        title="Delete Deck"
-                      >
-                        🗑️ Delete
-                      </button>
-                    )}
                   </div>
                 </div>
 

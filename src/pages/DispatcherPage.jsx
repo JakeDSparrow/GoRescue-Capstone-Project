@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
+import alertSound from '../assets/alertSound.mp3';
 import LiveMapView from './DispatcherViews/LiveMapView';
 import NotificationsView from './DispatcherViews/NotificationsView';
 import ReportLogsView from './DispatcherViews/ReportLogsView';
@@ -16,103 +16,143 @@ export default function DispatcherPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [reportLogs, setReportLogs] = useState([]);
-  const [teams, setTeams] = useState({
-    alpha: {
-      teamLeader: null,
-      emt1: null,
-      emt2: null,
-      ambulanceDriver: null
-    },
-    bravo: {
-      teamLeader: null,
-      emt1: null,
-      emt2: null,
-      ambulanceDriver: null
-    }
-  });
+  const [isMapReady, setIsMapReady] = useState(false);
+  const [highlightedNotifIds, setHighlightedNotifIds] = useState([]);
+  const [notifCount, setNotifCount] = useState(0);
 
-  useEffect(() => {
-    const loadResponders = async () => {
-      try {
-        const db = getFirestore();
-        const querySnapshot = await getDocs(collection(db, 'mdrrmo-users'));
-
-        const allUsers = querySnapshot.docs.map(doc => ({
-          uid: doc.id,
-          ...doc.data()
-        }));
-
-        console.log("All Users:", allUsers); // <== See all user objects
-
-        const filtered = allUsers.filter(user =>
-          user.role?.toLowerCase() === 'responder' 
-          && (user.status?.toLowerCase() !== 'inactive' || user.status === undefined)
-        );
-
-        console.log("Filtered Responders:", filtered); // <== Check what remains
-
-        setResponders(filtered);
-      } catch (error) {
-        console.error('Error loading responders:', error);
-      }
-    };
-
-    loadResponders();
-  }, []);
-
-
-  const [currentTeam, setCurrentTeam] = useState(null);
+  const notificationAudio = useRef(new Audio(alertSound));
   const mapRef = useRef(null);
-  const [responders, setResponders] = useState([]);
+  const originalTitle = useRef(document.title);
+  const flashInterval = useRef(null);
+  const prevNotifCount = useRef(0);
+  const notifCountRef = useRef(0);
+  const highlightTimers = useRef({});
+  const [currentTeam, setCurrentTeam] = useState(null);
 
   const toggleSidebar = () => setSidebarCollapsed(!sidebarCollapsed);
 
-  const openTeamEditor = (team) => {
-    setCurrentTeam(team);
-    document.getElementById('editor-title').textContent = `Edit ${team.charAt(0).toUpperCase() + team.slice(1)} Team`;
-    document.getElementById('team-editor-overlay').style.display = 'flex';
+  const startHighlightTimer = (id) => {
+    if (highlightTimers.current[id]) return;
+
+    highlightTimers.current[id] = setTimeout(() => {
+      setHighlightedNotifIds(prev => prev.filter(nid => nid !== id));
+      delete highlightTimers.current[id];
+    }, 15000);
   };
 
-  const closeTeamEditor = () => {
-    setCurrentTeam(null);
-    document.getElementById('team-editor-overlay').style.display = 'none';
+  const handleMouseEnter = (id) => {
+    if (highlightTimers.current[id]) {
+      clearTimeout(highlightTimers.current[id]);
+      delete highlightTimers.current[id];
+    }
   };
 
-  const saveTeamChanges = () => {
-    closeTeamEditor();
+  const handleMouseLeave = (id) => {
+    startHighlightTimer(id);
   };
 
-  const formatDateTime = (datetimeStr) => {
-    const date = new Date(datetimeStr);
-    return date.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
-  };
+  useEffect(() => {
+    const fakeNotifications = [
+      {
+        id: 'notif-001',
+        type: 'accident',
+        location: 'Brgy. San Vicente (Poblacion), Victoria',
+        reporter: 'Juan Dela Cruz',
+        reporterContact: '09171234567',
+        details: 'Motorbike collision near municipal hall, minor injuries.',
+        coordinates: JSON.stringify({ lat: 15.5781, lng: 120.6819 }),
+        status: 'pending',
+        read: false,
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'notif-002',
+        type: 'medical',
+        location: 'Brgy. Canarem, Victoria',
+        reporter: 'Maria Santos',
+        reporterContact: '09987654321',
+        details: 'Unconscious senior citizen reported at Canarem plaza.',
+        coordinates: JSON.stringify({ lat: 15.5970, lng: 120.7131 }),
+        status: 'pending',
+        read: false,
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'notif3',
+        type: 'natural',
+        location: 'Barangay Baculong',
+        reporter: 'Maria Santos',
+        reporterContact: '09987654321',
+        details: 'Fallen trees due to strong winds caused by storm.',
+        coordinates: { lat: 15.5801, lng: 120.6843 },
+        read: false,
+        timestamp: new Date().toISOString(),
+      }
+    ];
+
+    setNotifications(fakeNotifications);
+
+  }, []);
+
+  useEffect(() => {
+    if (notifications.length > prevNotifCount.current) {
+      notificationAudio.current.play().catch((err) => {
+        console.warn('Failed to play sound:', err);
+      });
+
+      const newNotifs = notifications.slice(prevNotifCount.current);
+      const newIds = newNotifs.map(n => n.id);
+
+      setHighlightedNotifIds(prev => [...prev, ...newIds]);
+      newIds.forEach(startHighlightTimer);
+
+      notifCountRef.current += newIds.length;
+      setNotifCount(notifCountRef.current);
+
+      let flashState = false;
+      clearInterval(flashInterval.current);
+
+      flashInterval.current = setInterval(() => {
+        document.title = flashState ? '🚨 NEW NOTIFICATION!' : originalTitle.current;
+        flashState = !flashState;
+      }, 1000);
+
+      setTimeout(() => {
+        clearInterval(flashInterval.current);
+        document.title = originalTitle.current;
+      }, 15000);
+    }
+
+    prevNotifCount.current = notifications.length;
+  }, [notifications]);
 
   const viewNotificationOnMap = (coordsStr) => {
-    const map = mapRef.current;
-    const coords = JSON.parse(coordsStr);
-    if (map) {
-      map.setView(coords, 18);
+    const coords = typeof coordsStr === 'string' ? JSON.parse(coordsStr) : coordsStr;
+    setActiveView('map-view');
 
-      if (window.emergencyMarker) {
-        map.removeLayer(window.emergencyMarker);
-      }
+    setTimeout(() => {
+      const map = mapRef.current;
+      if (!map || !coords?.lat || !coords?.lng) return;
 
-      window.emergencyMarker = L.marker(coords, {
+      map.setView([coords.lat, coords.lng], 18);
+
+      if (window.emergencyMarker) map.removeLayer(window.emergencyMarker);
+
+      window.emergencyMarker = L.marker([coords.lat, coords.lng], {
         icon: L.divIcon({
           html: '<div style="background-color: #e74c3c; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 16px;"><i class="fas fa-exclamation"></i></div>',
           className: 'emergency-marker',
           iconSize: [30, 30]
         })
-      }).addTo(map).bindPopup('Emergency Location').openPopup();
+      }).addTo(map).openPopup();
 
-      L.circle(coords, {
+      L.circle([coords.lat, coords.lng], {
         color: '#e74c3c',
         fillColor: '#e74c3c',
         fillOpacity: 0.2,
         radius: 20
       }).addTo(map);
-    }
-    setActiveView('map-view');
+    }, 400);
   };
 
   const dispatchAllResponders = (notificationId) => {
@@ -173,76 +213,85 @@ export default function DispatcherPage() {
     setReportLogs(prev => [...prev, newLog]);
   };
 
+  const formatDateTime = (datetimeStr) => {
+    const date = new Date(datetimeStr);
+    return date.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+  };
+
   const viewConfig = {
-    'map-view': <LiveMapView mapRef={mapRef} />,
+    'map-view': <LiveMapView mapRef={mapRef} onMapReady={() => setIsMapReady(true)} notifications={notifications} />,
     'notifications-view': (
       <NotificationsView
         notifications={notifications}
         dispatchTeam={dispatchTeam}
         dispatchAllResponders={dispatchAllResponders}
         viewOnMap={viewNotificationOnMap}
+        highlightedNotifIds={highlightedNotifIds}
+        onHoverEnter={handleMouseEnter}
+        onHoverLeave={handleMouseLeave}
       />
     ),
     'report-logs-view': (
-      <ReportLogsView
-        reportLogs={reportLogs}
-        formatDateTime={formatDateTime}
-      />
+      <ReportLogsView reportLogs={reportLogs} formatDateTime={formatDateTime} />
     ),
     'team-organizer-view': (
-      <TeamOrganizerView
-        responders={responders}
-      />
+      <TeamOrganizerView responders={currentTeam} />
     ),
     'incident-history-view': (
-      <IncidentHistoryView
-        reportLogs={reportLogs}
-      />
+      <IncidentHistoryView reportLogs={reportLogs} />
     )
   };
- 
+
   return (
     <div className='dispatcher-page'>
-      {
-        <div className={`dispatcher-layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-          <div className="top-bar">
-            <div className="menu-toggle" onClick={toggleSidebar}><i className="fas fa-bars" /></div>
-            <img src={Logo} alt="Victoria Rescue Logo" className="logo-small" />
-            <div className="user-menu">
-              <div className="notification-icon">
-                <i className="fas fa-bell" />
-                <span className="notification-badge">{notifications.filter(n => !n.read).length}</span>
-              </div>
-              <button id="logout-btn" onClick={() => window.location.href = '/'}>
-                <i className="fas fa-sign-out-alt" /> Logout
-              </button>
-            </div>
-          </div>
-
-          <div className="sidebar">
-            <div className="sidebar-header"><h3>Dispatcher Dashboard</h3></div>
-            <div className="sidebar-menu">
-              {[
-                { id: 'map-view', icon: 'fa-map', label: 'Live Map' },
-                { id: 'notifications-view', icon: 'fa-bell', label: 'Notifications' },
-                { id: 'report-logs-view', icon: 'fa-file-alt', label: 'Report Logs' },
-                { id: 'team-organizer-view', icon: 'fa-users', label: 'Team Organizer' },
-                { id: 'incident-history-view', icon: 'fa-history', label: 'Incident History' },
-              ].map(({ id, icon, label }) => (
-                <div key={id} className={`menu-item ${activeView === id ? 'active' : ''}`} onClick={() => setActiveView(id)}>
-                  <i className={`fas ${icon}`} /><span>{label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="main-content">
-            <div className="content-view">
-              {viewConfig[activeView]}
-            </div>
+      <div className={`dispatcher-layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+        <div className="top-bar">
+          <div className="menu-toggle" onClick={toggleSidebar}><i className="fas fa-bars" /></div>
+          <img src={Logo} alt="Victoria Rescue Logo" className="logo-small" />
+          <div className="user-menu">
+            <button id="logout-btn" onClick={() => window.location.href = '/'}>
+              <i className="fas fa-sign-out-alt" /> Logout
+            </button>
           </div>
         </div>
-      }
+
+        <div className="sidebar">
+          <div className="sidebar-header"><h3>Dispatcher Dashboard</h3></div>
+          <div className="sidebar-menu">
+            {[
+              { id: 'map-view', icon: 'fa-map', label: 'Live Map' },
+              { id: 'notifications-view', icon: 'fa-bell', label: 'Notifications' },
+              { id: 'report-logs-view', icon: 'fa-file-alt', label: 'Report Logs' },
+              { id: 'team-organizer-view', icon: 'fa-users', label: 'Team Organizer' },
+              { id: 'incident-history-view', icon: 'fa-history', label: 'Incident History' },
+            ].map(({ id, icon, label }) => (
+              <div
+                key={id}
+                className={`menu-item ${activeView === id ? 'active' : ''}`}
+                onClick={() => {
+                  setActiveView(id);
+                  if (id === 'notifications-view') {
+                    notifCountRef.current = 0;
+                    setNotifCount(0);
+                  }
+                }}
+              >
+                <i className={`fas ${icon}`} />
+                <span>{label}</span>
+                {id === 'notifications-view' && notifCount > 0 && (
+                  <span className="notification-badge-sidebar">
+                    {notifCount}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="main-content">
+          <div className="content-view">{viewConfig[activeView]}</div>
+        </div>
+      </div>
     </div>
   );
 }
