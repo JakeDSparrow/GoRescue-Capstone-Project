@@ -1,4 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
+import { getAuth } from 'firebase/auth';
+import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import alertSound from '../assets/alertSound.mp3';
 import LiveMapView from './DispatcherViews/LiveMapView';
 import NotificationsView from './DispatcherViews/NotificationsView';
@@ -15,11 +17,13 @@ export default function DispatcherPage() {
   const [activeView, setActiveView] = useState('map-view');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [notifications, setNotifications] = useState([]);
-  const [reportLogs, setReportLogs] = useState([]);
+  const [reportLogs, setReportLogs] = useState(() => {
+    const saved = localStorage.getItem('reportLogs');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [isMapReady, setIsMapReady] = useState(false);
   const [highlightedNotifIds, setHighlightedNotifIds] = useState([]);
   const [notifCount, setNotifCount] = useState(0);
-
   const notificationAudio = useRef(new Audio(alertSound));
   const mapRef = useRef(null);
   const originalTitle = useRef(document.title);
@@ -28,6 +32,49 @@ export default function DispatcherPage() {
   const notifCountRef = useRef(0);
   const highlightTimers = useRef({});
   const [currentTeam, setCurrentTeam] = useState(null);
+  const [teams, setTeams] = useState({
+    alpha: [],
+    bravo: [],
+  });
+  const [deployedNotifs, setDeployedNotifs] = useState(() => {
+    const saved = localStorage.getItem('deployedNotifs');
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  useEffect(() => {
+    const auth = getAuth();
+    const db = getFirestore();
+
+    const checkRole = async () => {
+      const user = auth.currentUser;
+      if (!user) {
+        console.log("Not logged in");
+        return;
+      }
+
+      try {
+        const userDoc = await getDoc(doc(db, "mdrrmo-users", user.uid));
+        if (userDoc.exists()) {
+          console.log("✅ User role:", userDoc.data().role);
+        } else {
+          console.warn("⚠️ User not found in mdrrmo-users");
+        }
+      } catch (error) {
+        console.error("🔥 Error fetching user role:", error.message);
+      }
+    };
+
+    checkRole();
+  }, []);
+
+
+  const markAsDeployed = (notifId) => {
+    setDeployedNotifs((prev) => {
+      const updated = { ...prev, [notifId]: true };
+      localStorage.setItem('deployedNotifs', JSON.stringify(updated));
+      return updated;
+    });
+  };
 
   const toggleSidebar = () => setSidebarCollapsed(!sidebarCollapsed);
 
@@ -158,7 +205,7 @@ export default function DispatcherPage() {
   const dispatchAllResponders = (notificationId) => {
     const notification = notifications.find(n => n.id === notificationId);
     if (!notification) return;
-
+  
     const updatedNotification = {
       ...notification,
       responded: true,
@@ -182,7 +229,12 @@ export default function DispatcherPage() {
       status: 'in-progress'
     };
 
-    setReportLogs(prev => [...prev, newLog]);
+    setReportLogs(prev => {
+      const updatedLogs = [...prev, newLog];
+      localStorage.setItem('reportLogs', JSON.stringify(updatedLogs));
+      console.log("📝 Saved report log:", newLog);
+      return updatedLogs;
+    });
   };
 
   const dispatchTeam = (notificationId, teamId) => {
@@ -210,7 +262,41 @@ export default function DispatcherPage() {
       status: 'in-progress'
     };
 
-    setReportLogs(prev => [...prev, newLog]);
+    setReportLogs(prev => {
+        const updatedLogs = [...prev, newLog];
+        localStorage.setItem('reportLogs', JSON.stringify(updatedLogs));
+        console.log("📝 Saved report log:", newLog);
+        return updatedLogs;
+      });
+  };
+
+  const handleCreateTeam = (teamName) => {
+    const teamDeck = {
+      leader: { uid: Date.now(), name: `Leader ${teamName.toUpperCase()}` },
+      driver: { uid: Date.now() + 1, name: `Driver ${teamName.toUpperCase()}` },
+      medic: { uid: Date.now() + 2, name: `Medic ${teamName.toUpperCase()}` },
+      support: { uid: Date.now() + 3, name: `Support ${teamName.toUpperCase()}` }
+    };
+
+    setTeams((prevTeams) => ({
+      ...prevTeams,
+      [teamName]: [teamDeck], // wrap in array if you want to support multiple decks per team
+    }));
+  };
+
+  const handleDeployAll = (notif) => {
+    dispatchAllResponders(notif.id); // Create log + update notification
+    markAsDeployed(notif.id);        // Mark as deployed
+  };
+
+  const handleDeployAlpha = (notif) => {
+    dispatchTeam(notif.id, 'alpha'); // Create log + update notification
+    markAsDeployed(notif.id);        // Mark as deployed
+  };
+
+  const handleDeployBravo = (notif) => {
+    dispatchTeam(notif.id, 'bravo'); // Create log + update notification
+    markAsDeployed(notif.id);        // Mark as deployed
   };
 
   const formatDateTime = (datetimeStr) => {
@@ -225,17 +311,25 @@ export default function DispatcherPage() {
         notifications={notifications}
         dispatchTeam={dispatchTeam}
         dispatchAllResponders={dispatchAllResponders}
+        handleDeployAll={handleDeployAll}
+        handleDeployAlpha={handleDeployAlpha}
+        handleDeployBravo={handleDeployBravo}
         viewOnMap={viewNotificationOnMap}
         highlightedNotifIds={highlightedNotifIds}
         onHoverEnter={handleMouseEnter}
         onHoverLeave={handleMouseLeave}
+        availableTeams={teams}
+        createTeam={handleCreateTeam}
       />
     ),
     'report-logs-view': (
-      <ReportLogsView reportLogs={reportLogs} formatDateTime={formatDateTime} />
+      <ReportLogsView 
+      reportLogs={reportLogs}
+      setReportLogs={setReportLogs} 
+      formatDateTime={formatDateTime} />
     ),
     'team-organizer-view': (
-      <TeamOrganizerView responders={currentTeam} />
+      <TeamOrganizerView responders={currentTeam}/>
     ),
     'incident-history-view': (
       <IncidentHistoryView reportLogs={reportLogs} />
@@ -270,9 +364,18 @@ export default function DispatcherPage() {
                 className={`menu-item ${activeView === id ? 'active' : ''}`}
                 onClick={() => {
                   setActiveView(id);
+
                   if (id === 'notifications-view') {
                     notifCountRef.current = 0;
                     setNotifCount(0);
+                  }
+
+                  if (id === 'team-organizer-view') {
+                    // Choose latest non-empty team from alpha or bravo
+                    const alpha = teams.alpha?.[0];
+                    const bravo = teams.bravo?.[0];
+                    const latest = bravo || alpha;
+                    setCurrentTeam(latest);
                   }
                 }}
               >

@@ -1,7 +1,25 @@
-import React from 'react';
+import React, {useEffect} from 'react';
+
 import { emergencyTypeMap, statusMap } from '../../constants/dispatchConstants';
 
-export default function ReportLogsView({ reportLogs, formatDateTime }) {
+export default function ReportLogsView({ reportLogs, setReportLogs, formatDateTime }) {
+
+  useEffect(() => {
+    if (reportLogs.length === 0) {
+      const testLog = {
+        id: 'TEST-001',
+        emergencyType: 'medical',
+        reporter: 'Test Reporter',
+        contact: '09999999999',
+        location: 'Test Location',
+        timestamp: new Date().toISOString(),
+        respondingTeam: 'Team Alpha',
+        status: 'dispatched'
+      };
+      setReportLogs([testLog]);
+    }
+  }, []);
+
   return (
     <div className="card">
       <h2>Report Logs</h2>

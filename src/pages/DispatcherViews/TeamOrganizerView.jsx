@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import TeamEditorModal from '../../components/TeamEditorModal';
-import { getFirestore, collection, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { getFirestore, collection, doc, getDocs, setDoc } from 'firebase/firestore';
 
 const roleLabels = {
   teamLeader: 'Team Leader',
@@ -8,6 +8,7 @@ const roleLabels = {
   emt2: 'EMT 2',
   ambulanceDriver: 'Ambulance Driver',
 };
+
 const defaultTeamDeck = {
   teamLeader: null,
   emt1: null,
@@ -25,63 +26,30 @@ export default function TeamOrganizerView() {
   const db = getFirestore();
 
   useEffect(() => {
-  const loadTeams = async () => {
-    const snapshot = await getDocs(collection(db, 'teams'));
-    const rawTeams = { alpha: [], bravo: [] };
+    const loadTeams = async () => {
+      const snapshot = await getDocs(collection(db, 'teams'));
+      const rawTeams = { alpha: [], bravo: [] };
 
-    snapshot.forEach(docSnap => {
-      const [teamKey, index] = docSnap.id.split('-');
-      const idx = parseInt(index, 10);
-      if (!rawTeams[teamKey]) return;
-      rawTeams[teamKey][idx] = { ...defaultTeamDeck, ...docSnap.data() };
-    });
-
-    const now = new Date();
-    const rotatedTeams = {};
-
-    for (const teamKey of ['alpha', 'bravo']) {
-      const decks = rawTeams[teamKey] || [];
-
-      // Sort decks by index to be safe
-      const sortedDecks = decks.sort((a, b) => {
-        const aDate = new Date(a?.createdAt || 0);
-        const bDate = new Date(b?.createdAt || 0);
-        return aDate - bDate;
+      snapshot.forEach(docSnap => {
+        const [teamKey, index] = docSnap.id.split('-');
+        const idx = parseInt(index, 10);
+        if (!rawTeams[teamKey]) return;
+        rawTeams[teamKey][idx] = { ...defaultTeamDeck, ...docSnap.data() };
       });
 
-      // If first deck is expired, rotate
-      const firstDeck = sortedDecks[0];
-      const isExpired = firstDeck?.createdAt &&
-        now - new Date(firstDeck.createdAt) > 24 * 60 * 60 * 1000;
+      // Fill any empty teams
+      ['alpha', 'bravo'].forEach(teamKey => {
+        if ((rawTeams[teamKey]?.length || 0) === 0) {
+          rawTeams[teamKey] = [{ ...defaultTeamDeck, createdAt: new Date().toISOString(), }];
+        }
+      });
 
-      if (isExpired) {
-        const rotated = [
-          sortedDecks[1] || { ...defaultTeamDeck },
-          sortedDecks[2] || { ...defaultTeamDeck },
-          { ...defaultTeamDeck, createdAt: now.toISOString() }, // new empty deck
-        ];
+      setTeams(rawTeams);
+    };
 
-        // Overwrite Firestore with new order
-        await Promise.all(
-          rotated.map((deck, i) =>
-            setDoc(doc(db, 'teams', `${teamKey}-${i}`), deck)
-          )
-        );
-
-        rotatedTeams[teamKey] = rotated;
-      } else {
-        rotatedTeams[teamKey] = sortedDecks;
-      }
-    }
-
-    setTeams(rotatedTeams);
-  };
-
-
-
-  const loadResponders = async () => {
-    const snapshot = await getDocs(collection(db, 'mdrrmo-users'));
-    const allUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+    const loadResponders = async () => {
+      const snapshot = await getDocs(collection(db, 'mdrrmo-users'));
+      const allUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
       const filtered = allUsers.filter(
         u => u.role?.toLowerCase() === 'responder' && u.status !== 'inactive'
       );
@@ -99,11 +67,27 @@ export default function TeamOrganizerView() {
   };
 
   const handleSave = async (teamKey, deckIndex, updatedDeck) => {
-    const docId = `${teamKey}-${deckIndex}`;
+  const docId = `${teamKey}-${deckIndex}`;
 
+  // Step 1: Set all decks of this team to `currentTeam: false`
+  const teamSnapshots = await getDocs(collection(db, 'teams'));
+    const batchUpdates = [];
+
+    teamSnapshots.forEach(docSnap => {
+      if (docSnap.id.startsWith(teamKey)) {
+        const docRef = doc(db, 'teams', docSnap.id);
+        batchUpdates.push(setDoc(docRef, { ...docSnap.data(), currentTeam: false }));
+      }
+    });
+
+    // Apply batch updates first
+    await Promise.all(batchUpdates);
+
+    // Step 2: Mark selected deck as currentTeam
     const deckWithTimestamp = {
       ...updatedDeck,
-      createdAt: updatedDeck.createdAt || new Date().toISOString(),
+      currentTeam: true,
+      createdAt: new Date().toISOString(),
     };
 
     await setDoc(doc(db, 'teams', docId), deckWithTimestamp);
@@ -115,40 +99,18 @@ export default function TeamOrganizerView() {
     });
   };
 
-
-  const addDeck = (teamKey) => {
-    setTeams(prev => {
-      if (prev[teamKey].length >= 3) {
-        alert('Each team can only have a maximum of 3 decks.');
-        return prev;
-      }
-
-      const updated = { ...prev };
-      updated[teamKey] = [...updated[teamKey], { ...defaultTeamDeck }];
-      return updated;
-    });
-  };
-
   return (
     <div className="team-organizer-container">
       <h2>Team Organizer</h2>
-
       <div className="teams-container">
         {['alpha', 'bravo'].map(teamKey => (
           <div key={teamKey} className="team-section">
             <h3>{`Team ${teamKey.toUpperCase()}`}</h3>
-
             {teams[teamKey]?.map((deck, idx) => (
               <div className={`deck-card ${deck.currentTeam ? 'active' : ''}`} key={idx}>
-                {/* Deck Header */}
                 <div className="deck-header">
                   <div className="deck-title-group">
                     <strong>Deck {idx + 1}</strong>
-                    {deck.createdAt && (
-                      <span className="deck-timestamp">
-                        • Created: {new Date(deck.createdAt).toLocaleString()}
-                      </span>
-                    )}
                   </div>
                   <div className="deck-controls">
                     <button className="edit-button" onClick={() => handleEdit(teamKey, idx)}>
@@ -156,8 +118,6 @@ export default function TeamOrganizerView() {
                     </button>
                   </div>
                 </div>
-
-                {/* Deck Body */}
                 <div className="deck-body">
                   {Object.entries(roleLabels).map(([roleKey, label]) => {
                     const iconMap = {
@@ -177,6 +137,11 @@ export default function TeamOrganizerView() {
                       </div>
                     );
                   })}
+                  {deck.createdAt && (
+                    <p className="text-sm text-gray-500 mt-1">
+                      Created: {new Date(deck.createdAt).toLocaleString()}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
@@ -185,44 +150,42 @@ export default function TeamOrganizerView() {
       </div>
 
       {(() => {
-          const assignedUids = new Set();
-
-          // Go through all decks in all teams
-          Object.values(teams).forEach(teamDecks => {
-            teamDecks.forEach(deck => {
-              Object.values(deck).forEach(role => {
-                if (role?.uid) {
-                  assignedUids.add(role.uid);
-                }
-              });
+        const assignedUids = new Set();
+        Object.values(teams).forEach(teamDecks => {
+          teamDecks.forEach(deck => {
+            Object.values(deck).forEach(role => {
+              if (role?.uid) {
+                assignedUids.add(role.uid);
+              }
             });
           });
+        });
 
-          // Get current deck (so we can allow its members to stay selectable)
-          const currentDeck = teams[selectedTeamKey]?.[selectedDeckIndex];
-
-          // Build a filtered list of responders
-          const filteredResponders = responders.filter(responder => {
-            return (
-              !assignedUids.has(responder.uid) || 
-              Object.values(currentDeck || {}).some(role => role?.uid === responder.uid)
-            );
-          });
-
+        const currentDeck = teams[selectedTeamKey]?.[selectedDeckIndex];
+        const filteredResponders = responders.filter(responder => {
           return (
-            <TeamEditorModal
-              isOpen={isModalOpen}
-              onClose={() => setIsModalOpen(false)}
-              teamDate={selectedTeamKey}
-              currentTeam={currentDeck}
-              responders={filteredResponders}
-              onSave={(teamKey, data) => {
-                handleSave(teamKey, selectedDeckIndex, data);
-                setIsModalOpen(false);
-              }}
-            />
+            !assignedUids.has(responder.uid) ||
+            Object.values(currentDeck || {}).some(role => role?.uid === responder.uid)
           );
-        })()}
+        });
+
+        return (
+          <TeamEditorModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            teamDate={selectedTeamKey}
+            currentTeam={currentDeck}
+            responders={filteredResponders}
+            onSave={(teamKey, data) => {
+              handleSave(teamKey, selectedDeckIndex, data);
+              setIsModalOpen(false);
+            }}
+            teams={teams}
+            selectedTeamKey={selectedTeamKey}
+            selectedDeckIndex={selectedDeckIndex}
+          />
+        );
+      })()}
     </div>
   );
 }
