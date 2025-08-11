@@ -58,6 +58,29 @@ export const emergencyTypeMap = {
   },
 };
 
+export const emergencySeverityMap = {
+  critical: {
+    icon: 'fa-exclamation-triangle',
+    color: '#e74c3c',
+    label: 'Critical',
+  },
+  high: {
+    icon: 'fa-exclamation-circle',
+    color: '#e67e22',
+    label: 'High',
+  },
+  moderate: {
+    icon: 'fa-info-circle',
+    color: '#f1c40f',
+    label: 'Moderate',
+  },
+  low: {
+    icon: 'fa-check-circle',
+    color: '#2ecc71',
+    label: 'Low',
+  },
+};
+
 export const statusMap = {
   pending: {
     color: '#f39c12',

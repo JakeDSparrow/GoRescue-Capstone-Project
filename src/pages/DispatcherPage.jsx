@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import alertSound from '../assets/alertSound.mp3';
 import LiveMapView from './DispatcherViews/LiveMapView';
 import NotificationsView from './DispatcherViews/NotificationsView';
@@ -9,9 +9,10 @@ import TeamOrganizerView from './DispatcherViews/TeamOrganizerView';
 import IncidentHistoryView from './DispatcherViews/IncidentHistoryView';
 import '../pages/DispatcherViews/DispatchStyle/DispatcherPage.css';
 import '../App.css';
+import CreateRescueModal from '../components/CreateReportModal';
 import Logo from '../assets/GoRescueLogo.webp';
 import L from 'leaflet';
-import { emergencyTypes } from '../constants/dispatchConstants';
+import { emergencySeverityMap } from '../constants/dispatchConstants';
 
 export default function DispatcherPage() {
   const [activeView, setActiveView] = useState('map-view');
@@ -19,11 +20,25 @@ export default function DispatcherPage() {
   const [notifications, setNotifications] = useState([]);
   const [reportLogs, setReportLogs] = useState(() => {
     const saved = localStorage.getItem('reportLogs');
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved);
+      // parse location if stored as stringified JSON
+      return parsed.map(r => ({
+        ...r,
+        location:
+          typeof r.location === 'string'
+            ? JSON.parse(r.location)
+            : r.location,
+      }));
+    } catch {
+      return [];
+    }
   });
-  const [isMapReady, setIsMapReady] = useState(false);
   const [highlightedNotifIds, setHighlightedNotifIds] = useState([]);
   const [notifCount, setNotifCount] = useState(0);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const db = getFirestore();
   const notificationAudio = useRef(new Audio(alertSound));
   const mapRef = useRef(null);
   const originalTitle = useRef(document.title);
@@ -32,41 +47,31 @@ export default function DispatcherPage() {
   const notifCountRef = useRef(0);
   const highlightTimers = useRef({});
   const [currentTeam, setCurrentTeam] = useState(null);
-  const [teams, setTeams] = useState({
-    alpha: [],
-    bravo: [],
-  });
+  const [teams, setTeams] = useState({ alpha: [], bravo: [] });
   const [deployedNotifs, setDeployedNotifs] = useState(() => {
     const saved = localStorage.getItem('deployedNotifs');
     return saved ? JSON.parse(saved) : {};
   });
 
+  // Check user role on load
   useEffect(() => {
     const auth = getAuth();
     const db = getFirestore();
 
     const checkRole = async () => {
       const user = auth.currentUser;
-      if (!user) {
-        console.log("Not logged in");
-        return;
-      }
-
+      if (!user) return;
       try {
         const userDoc = await getDoc(doc(db, "mdrrmo-users", user.uid));
         if (userDoc.exists()) {
           console.log("✅ User role:", userDoc.data().role);
-        } else {
-          console.warn("⚠️ User not found in mdrrmo-users");
         }
       } catch (error) {
         console.error("🔥 Error fetching user role:", error.message);
       }
     };
-
     checkRole();
   }, []);
-
 
   const markAsDeployed = (notifId) => {
     setDeployedNotifs((prev) => {
@@ -80,7 +85,6 @@ export default function DispatcherPage() {
 
   const startHighlightTimer = (id) => {
     if (highlightTimers.current[id]) return;
-
     highlightTimers.current[id] = setTimeout(() => {
       setHighlightedNotifIds(prev => prev.filter(nid => nid !== id));
       delete highlightTimers.current[id];
@@ -94,59 +98,12 @@ export default function DispatcherPage() {
     }
   };
 
-  const handleMouseLeave = (id) => {
-    startHighlightTimer(id);
-  };
+  const handleMouseLeave = (id) => startHighlightTimer(id);
 
-  useEffect(() => {
-    const fakeNotifications = [
-      {
-        id: 'notif-001',
-        type: 'accident',
-        location: 'Brgy. San Vicente (Poblacion), Victoria',
-        reporter: 'Juan Dela Cruz',
-        reporterContact: '09171234567',
-        details: 'Motorbike collision near municipal hall, minor injuries.',
-        coordinates: JSON.stringify({ lat: 15.5781, lng: 120.6819 }),
-        status: 'pending',
-        read: false,
-        timestamp: new Date().toISOString(),
-      },
-      {
-        id: 'notif-002',
-        type: 'medical',
-        location: 'Brgy. Canarem, Victoria',
-        reporter: 'Maria Santos',
-        reporterContact: '09987654321',
-        details: 'Unconscious senior citizen reported at Canarem plaza.',
-        coordinates: JSON.stringify({ lat: 15.5970, lng: 120.7131 }),
-        status: 'pending',
-        read: false,
-        timestamp: new Date().toISOString(),
-      },
-      {
-        id: 'notif3',
-        type: 'natural',
-        location: 'Barangay Baculong',
-        reporter: 'Maria Santos',
-        reporterContact: '09987654321',
-        details: 'Fallen trees due to strong winds caused by storm.',
-        coordinates: { lat: 15.5801, lng: 120.6843 },
-        read: false,
-        timestamp: new Date().toISOString(),
-      }
-    ];
-
-    setNotifications(fakeNotifications);
-
-  }, []);
-
+  // Notification arrival effect: play sound & flash title only on new notifications
   useEffect(() => {
     if (notifications.length > prevNotifCount.current) {
-      notificationAudio.current.play().catch((err) => {
-        console.warn('Failed to play sound:', err);
-      });
-
+      notificationAudio.current.play().catch(() => {});
       const newNotifs = notifications.slice(prevNotifCount.current);
       const newIds = newNotifs.map(n => n.id);
 
@@ -158,7 +115,6 @@ export default function DispatcherPage() {
 
       let flashState = false;
       clearInterval(flashInterval.current);
-
       flashInterval.current = setInterval(() => {
         document.title = flashState ? '🚨 NEW NOTIFICATION!' : originalTitle.current;
         flashState = !flashState;
@@ -169,25 +125,22 @@ export default function DispatcherPage() {
         document.title = originalTitle.current;
       }, 15000);
     }
-
     prevNotifCount.current = notifications.length;
   }, [notifications]);
 
+  // Parse coords and zoom map to notif location
   const viewNotificationOnMap = (coordsStr) => {
     const coords = typeof coordsStr === 'string' ? JSON.parse(coordsStr) : coordsStr;
     setActiveView('map-view');
-
     setTimeout(() => {
       const map = mapRef.current;
       if (!map || !coords?.lat || !coords?.lng) return;
-
       map.setView([coords.lat, coords.lng], 18);
-
       if (window.emergencyMarker) map.removeLayer(window.emergencyMarker);
 
       window.emergencyMarker = L.marker([coords.lat, coords.lng], {
         icon: L.divIcon({
-          html: '<div style="background-color: #e74c3c; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 16px;"><i class="fas fa-exclamation"></i></div>',
+          html: '<div style="background-color: #e74c3c; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-exclamation"></i></div>',
           className: 'emergency-marker',
           iconSize: [30, 30]
         })
@@ -202,41 +155,7 @@ export default function DispatcherPage() {
     }, 400);
   };
 
-  const dispatchAllResponders = (notificationId) => {
-    const notification = notifications.find(n => n.id === notificationId);
-    if (!notification) return;
-  
-    const updatedNotification = {
-      ...notification,
-      responded: true,
-      respondingTeam: 'ALL AVAILABLE UNITS',
-      responseTime: new Date().toLocaleTimeString()
-    };
-
-    setNotifications(prev => prev.map(n => n.id === notificationId ? updatedNotification : n));
-
-    alert(`All available units have been dispatched to ${notification.location}`);
-
-    const newLog = {
-      id: `RPT-${new Date().getFullYear()}-${reportLogs.length + 1}`,
-      reporter: notification.reporter,
-      contact: notification.reporterContact,
-      timestamp: new Date().toISOString(),
-      emergencyType: notification.type,
-      location: notification.location,
-      details: notification.details,
-      respondingTeam: 'ALL AVAILABLE UNITS - FULL DEPLOYMENT',
-      status: 'in-progress'
-    };
-
-    setReportLogs(prev => {
-      const updatedLogs = [...prev, newLog];
-      localStorage.setItem('reportLogs', JSON.stringify(updatedLogs));
-      console.log("📝 Saved report log:", newLog);
-      return updatedLogs;
-    });
-  };
-
+  // Dispatch a team for a notification
   const dispatchTeam = (notificationId, teamId) => {
     const notification = notifications.find(n => n.id === notificationId);
     if (!notification) return;
@@ -247,27 +166,35 @@ export default function DispatcherPage() {
       respondingTeam: `Team ${teamId.charAt(0).toUpperCase() + teamId.slice(1)}`,
       responseTime: new Date().toLocaleTimeString()
     };
-
     setNotifications(prev => prev.map(n => n.id === notificationId ? updatedNotification : n));
 
+    // Create new report log with parsed coords & timestamp
     const newLog = {
       id: `RPT-${new Date().getFullYear()}-${reportLogs.length + 1}`,
       reporter: notification.reporter,
-      contact: notification.reporterContact,
+      contact: notification.reporterContact || notification.contact,
       timestamp: new Date().toISOString(),
-      emergencyType: notification.type,
-      location: notification.location,
+      emergencySeverity: notification.severity,
+      location:
+        typeof notification.location === 'string'
+          ? JSON.parse(notification.location)
+          : notification.location,
       details: notification.details,
-      respondingTeam: `Team ${teamId.charAt(0).toUpperCase() + teamId.slice(1)} - ${emergencyTypes[notification.type].responseTeam}`,
+      respondingTeam: `Team ${teamId.charAt(0).toUpperCase() + teamId.slice(1)} - ${
+        emergencySeverityMap[notification.severity]?.label || ''
+      }`,
       status: 'in-progress'
     };
 
     setReportLogs(prev => {
-        const updatedLogs = [...prev, newLog];
-        localStorage.setItem('reportLogs', JSON.stringify(updatedLogs));
-        console.log("📝 Saved report log:", newLog);
-        return updatedLogs;
-      });
+      const updatedLogs = [...prev, newLog];
+      // Store stringified location to localStorage for persistence
+      localStorage.setItem('reportLogs', JSON.stringify(updatedLogs.map(r => ({
+        ...r,
+        location: JSON.stringify(r.location)
+      }))));
+      return updatedLogs;
+    });
   };
 
   const handleCreateTeam = (teamName) => {
@@ -277,43 +204,88 @@ export default function DispatcherPage() {
       medic: { uid: Date.now() + 2, name: `Medic ${teamName.toUpperCase()}` },
       support: { uid: Date.now() + 3, name: `Support ${teamName.toUpperCase()}` }
     };
-
     setTeams((prevTeams) => ({
       ...prevTeams,
-      [teamName]: [teamDeck], // wrap in array if you want to support multiple decks per team
+      [teamName]: [teamDeck],
     }));
   };
 
-  const handleDeployAll = (notif) => {
-    dispatchAllResponders(notif.id); // Create log + update notification
-    markAsDeployed(notif.id);        // Mark as deployed
-  };
-
-  const handleDeployAlpha = (notif) => {
-    dispatchTeam(notif.id, 'alpha'); // Create log + update notification
-    markAsDeployed(notif.id);        // Mark as deployed
-  };
-
-  const handleDeployBravo = (notif) => {
-    dispatchTeam(notif.id, 'bravo'); // Create log + update notification
-    markAsDeployed(notif.id);        // Mark as deployed
-  };
-
+  // Format datetime strings for UI
   const formatDateTime = (datetimeStr) => {
+    if (!datetimeStr) return 'N/A';
     const date = new Date(datetimeStr);
+    if (isNaN(date)) return 'Invalid Date';
     return date.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
   };
 
+  // Add newly created reports from modal to reportLogs
+  const handleReportCreated = (newReport) => {
+    const normalizedReport = {
+      ...newReport,
+      reportId: newReport.reportId || newReport.id,
+      id: newReport.id || `RPT-${new Date().getFullYear()}-${reportLogs.length + 1}`,
+      reporter: newReport.reporterName || newReport.reporter,
+      contact: newReport.contactNumber || newReport.contact,
+      timestamp: newReport.timestamp || new Date().toISOString(),
+      status: newReport.status || 'pending',
+      location:
+        typeof newReport.location === 'string'
+          ? JSON.parse(newReport.location)
+          : newReport.location || { lat: 0, lng: 0 },
+    };
+
+    setReportLogs((prevLogs) => {
+      const updatedLogs = [...prevLogs, normalizedReport];
+      localStorage.setItem('reportLogs', JSON.stringify(updatedLogs.map(r => ({
+        ...r,
+        location: JSON.stringify(r.location)
+      }))));
+      return updatedLogs;
+    });
+  };
+
+  // Firestore realtime fetch report logs
+  useEffect(() => {
+    const incidentsRef = collection(db, 'incidents');
+    const q = query(incidentsRef, where('status', 'in', ['pending', 'in-progress'])); 
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedReports = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          location:
+            typeof data.location === 'string'
+              ? JSON.parse(data.location)
+              : data.location,
+          timestamp: data.timestamp?.toDate ? data.timestamp.toDate().toISOString() : (data.timestamp || new Date().toISOString())
+        };
+      });
+      setReportLogs(fetchedReports);
+      localStorage.setItem('reportLogs', JSON.stringify(fetchedReports.map(r => ({
+        ...r,
+        location: JSON.stringify(r.location)
+      }))));
+    }, (error) => {
+      console.error('Error fetching incidents:', error);
+    });
+
+    return () => unsubscribe();
+  }, [db]);
+
   const viewConfig = {
-    'map-view': <LiveMapView mapRef={mapRef} onMapReady={() => setIsMapReady(true)} notifications={notifications} />,
+    'map-view': (
+      <LiveMapView
+        mapRef={mapRef}
+        notifications={notifications}
+        reportLogs={reportLogs}
+      />
+    ),
     'notifications-view': (
       <NotificationsView
         notifications={notifications}
         dispatchTeam={dispatchTeam}
-        dispatchAllResponders={dispatchAllResponders}
-        handleDeployAll={handleDeployAll}
-        handleDeployAlpha={handleDeployAlpha}
-        handleDeployBravo={handleDeployBravo}
         viewOnMap={viewNotificationOnMap}
         highlightedNotifIds={highlightedNotifIds}
         onHoverEnter={handleMouseEnter}
@@ -323,16 +295,14 @@ export default function DispatcherPage() {
       />
     ),
     'report-logs-view': (
-      <ReportLogsView 
-      reportLogs={reportLogs}
-      setReportLogs={setReportLogs} 
-      formatDateTime={formatDateTime} />
+      <ReportLogsView reportLogs={reportLogs} setReportLogs={setReportLogs} formatDateTime={formatDateTime} />
     ),
-    'team-organizer-view': (
-      <TeamOrganizerView responders={currentTeam}/>
-    ),
+    'team-organizer-view': <TeamOrganizerView responders={currentTeam} />,
     'incident-history-view': (
-      <IncidentHistoryView reportLogs={reportLogs} />
+      <IncidentHistoryView
+        reportLogs={reportLogs}
+        formatDateTime={formatDateTime}
+      />
     )
   };
 
@@ -364,14 +334,11 @@ export default function DispatcherPage() {
                 className={`menu-item ${activeView === id ? 'active' : ''}`}
                 onClick={() => {
                   setActiveView(id);
-
                   if (id === 'notifications-view') {
                     notifCountRef.current = 0;
                     setNotifCount(0);
                   }
-
                   if (id === 'team-organizer-view') {
-                    // Choose latest non-empty team from alpha or bravo
                     const alpha = teams.alpha?.[0];
                     const bravo = teams.bravo?.[0];
                     const latest = bravo || alpha;
@@ -382,9 +349,7 @@ export default function DispatcherPage() {
                 <i className={`fas ${icon}`} />
                 <span>{label}</span>
                 {id === 'notifications-view' && notifCount > 0 && (
-                  <span className="notification-badge-sidebar">
-                    {notifCount}
-                  </span>
+                  <span className="notification-badge-sidebar">{notifCount}</span>
                 )}
               </div>
             ))}
@@ -394,6 +359,26 @@ export default function DispatcherPage() {
         <div className="main-content">
           <div className="content-view">{viewConfig[activeView]}</div>
         </div>
+
+        {/* Floating Action Button */}
+        <div
+          className="fab-container"
+          onClick={() => setShowReportModal(true)}
+        >
+          <div className="fab-icon">
+            <i className="fas fa-file-alt"></i>
+          </div>
+          <span className="fab-label">Create Report</span>
+        </div>
+
+        {/* Report Modal */}
+        {showReportModal && (
+          <CreateRescueModal
+            isOpen={showReportModal}
+            onClose={() => setShowReportModal(false)}
+            onReportCreated={handleReportCreated}
+          />
+        )}
       </div>
     </div>
   );

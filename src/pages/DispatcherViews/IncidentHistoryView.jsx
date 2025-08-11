@@ -1,7 +1,10 @@
 import React from 'react';
-import { emergencyTypeMap, statusMap } from '../../constants/dispatchConstants';
+import { emergencySeverityMap, statusMap } from '../../constants/dispatchConstants';
+import useFormatDate from '../../hooks/useFormatDate';
 
 export default function IncidentHistoryView({ reportLogs }) {
+  const {formatDateTime} = useFormatDate();  // <-- call the hook here
+
   return (
     <div className="card">
       <h2>Incident History</h2>
@@ -10,7 +13,7 @@ export default function IncidentHistoryView({ reportLogs }) {
           <thead>
             <tr>
               <th>Report ID</th>
-              <th>Emergency Type</th>
+              <th>Emergency Severity</th>
               <th>Reported By</th>
               <th>Responding Team</th>
               <th>Status</th>
@@ -30,35 +33,38 @@ export default function IncidentHistoryView({ reportLogs }) {
             ) : (
               reportLogs.map((log) => (
                 <tr key={log.id}>
-                  <td>{log.id}</td>
-                  <td>
-                    <span className="emergency-tag" style={{
-                      backgroundColor: emergencyTypeMap[log.emergencyType]?.color || '#ccc',
-                      color: 'white',
-                      padding: '4px 8px',
-                      borderRadius: '4px'
-                    }}>
-                      {emergencyTypeMap[log.emergencyType]?.label || log.emergencyType}
+                  <td>{log.reportId || log.id}</td><td>
+                    <span
+                      className="emergency-tag"
+                      style={{
+                        backgroundColor:
+                          emergencySeverityMap[log.emergencySeverity.toLowerCase()]?.color || '#ccc',
+                        color: 'white',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {emergencySeverityMap[log.emergencySeverity.toLowerCase()]?.label.toUpperCase() ||
+                        log.emergencySeverity.toUpperCase()}
                     </span>
-                  </td>
-                  <td>{log.reporter} <br /><small>{log.contact}</small></td>
-                  <td>{log.respondingTeam}</td>
-                  <td>
-                    <span className="status-badge" style={{
-                      backgroundColor: statusMap[log.status]?.color || '#ccc',
-                      color: 'white',
-                      padding: '4px 8px',
-                      borderRadius: '4px'
-                    }}>
-                      {statusMap[log.status]?.label || log.status}
+                  </td><td>
+                    {log.reporterName || log.reporter} <br />
+                    <small>{log.contactNumber || log.contact}</small>
+                  </td><td>{log.respondingTeam}</td><td>
+                    <span
+                      className="status-badge"
+                      style={{
+                        backgroundColor: statusMap[log.status.toLowerCase()]?.color || '#ccc',
+                        color: 'white',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {statusMap[log.status.toLowerCase()]?.label.toUpperCase() || log.status.toUpperCase()}
                     </span>
-                  </td>
-                  <td>
-                    {new Date(log.timestamp).toLocaleString('en-PH', {
-                      dateStyle: 'medium',
-                      timeStyle: 'short'
-                    })}
-                  </td>
+                  </td><td>{formatDateTime(log.timestamp)}</td>
                 </tr>
               ))
             )}

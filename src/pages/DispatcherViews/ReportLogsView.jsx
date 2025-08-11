@@ -1,14 +1,16 @@
-import React, {useEffect} from 'react';
+import React, { useEffect } from 'react';
+import { emergencySeverityMap, statusMap } from '../../constants/dispatchConstants';
+import useFormatDate from '../../hooks/useFormatDate';
 
-import { emergencyTypeMap, statusMap } from '../../constants/dispatchConstants';
-
-export default function ReportLogsView({ reportLogs, setReportLogs, formatDateTime }) {
+export default function ReportLogsView({ reportLogs, setReportLogs }) {
+  const {formatDateTime}  = useFormatDate();  // <-- destructure here
 
   useEffect(() => {
     if (reportLogs.length === 0) {
       const testLog = {
         id: 'TEST-001',
-        emergencyType: 'medical',
+        reportId: 'TEST-001',   // Added for consistent display
+        emergencySeverity: 'critical',
         reporter: 'Test Reporter',
         contact: '09999999999',
         location: 'Test Location',
@@ -18,7 +20,7 @@ export default function ReportLogsView({ reportLogs, setReportLogs, formatDateTi
       };
       setReportLogs([testLog]);
     }
-  }, []);
+  }, [reportLogs, setReportLogs]);
 
   return (
     <div className="card">
@@ -28,7 +30,7 @@ export default function ReportLogsView({ reportLogs, setReportLogs, formatDateTi
           <thead>
             <tr>
               <th>Report ID</th>
-              <th>Emergency Type</th>
+              <th>Emergency Severity</th>
               <th>Reported By</th>
               <th>Responding Team</th>
               <th>Status</th>
@@ -49,26 +51,36 @@ export default function ReportLogsView({ reportLogs, setReportLogs, formatDateTi
             ) : (
               reportLogs.map((log) => (
                 <tr key={log.id}>
-                  <td>{log.id}</td>
+                  <td>{log.reportId || log.id}</td>
                   <td>
-                    <span className="emergency-tag" style={{
-                      backgroundColor: emergencyTypeMap[log.emergencyType]?.color || '#ccc',
-                      color: 'white',
-                      padding: '4px 8px',
-                      borderRadius: '4px'
-                    }}>
-                      {emergencyTypeMap[log.emergencyType]?.label || log.emergencyType}
+                    <span
+                      className="emergency-tag"
+                      style={{
+                        backgroundColor: emergencySeverityMap[log.emergencySeverity]?.color || '#ccc',
+                        color: 'white',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {emergencySeverityMap[log.emergencySeverity]?.label || log.emergencySeverity}
                     </span>
                   </td>
-                  <td>{log.reporter} <br /><small>{log.contact}</small></td>
+                  <td>
+                    {log.reporter} <br />
+                    <small>{log.contact}</small>
+                  </td>
                   <td>{log.respondingTeam}</td>
                   <td>
-                    <span className="status-badge" style={{
-                      backgroundColor: statusMap[log.status]?.color || '#ccc',
-                      color: 'white',
-                      padding: '4px 8px',
-                      borderRadius: '4px'
-                    }}>
+                    <span
+                      className="status-badge"
+                      style={{
+                        backgroundColor: statusMap[log.status]?.color || '#ccc',
+                        color: 'white',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                      }}
+                    >
                       {statusMap[log.status]?.label || log.status}
                     </span>
                   </td>
@@ -77,7 +89,6 @@ export default function ReportLogsView({ reportLogs, setReportLogs, formatDateTi
                     <button className="btn-action" disabled>
                       <i className="fas fa-check" /> Done
                     </button>
-                    {/* Replace above with logic when you're ready to allow completion */}
                   </td>
                 </tr>
               ))
