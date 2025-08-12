@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import './modalstyles/TeamEditorModalStyles.css';
-import { serverTimestamp } from 'firebase/firestore';
 
 const roleLabels = {
   teamLeader: 'Team Leader',
@@ -18,13 +17,30 @@ export default function TeamEditorModal({
   onSave,
   teams,
   selectedTeamKey,
-  selectedDeckIndex
+  selectedDeckIndex // will be ignored in shift mode
 }) {
   const [formState, setFormState] = useState({});
 
   useEffect(() => {
     if (isOpen) setFormState(currentTeam);
   }, [isOpen, currentTeam]);
+
+  // Filter responders to exclude those assigned in other shifts
+  const getFilteredResponders = (roleKey) => {
+    const currentShift = teams?.[selectedTeamKey] || {};
+    const assignedUids = new Set();
+
+    Object.entries(teams || {}).forEach(([teamKey, shift]) => {
+      if (teamKey === selectedTeamKey) return; // skip current shift
+      Object.values(shift || {}).forEach(role => {
+        if (role?.uid) assignedUids.add(role.uid);
+      });
+    });
+
+    return responders.filter(r =>
+      !assignedUids.has(r.uid) || r.uid === currentShift?.[roleKey]?.uid
+    );
+  };
 
   const handleSave = () => {
     onSave(teamDate, formState);
@@ -33,32 +49,11 @@ export default function TeamEditorModal({
 
   if (!isOpen) return null;
 
-  const getFilteredResponders = (roleKey) => {
-  // Get the deck being edited
-  const currentDeck = teams?.[selectedTeamKey]?.[selectedDeckIndex] || {};
-
-  // Collect all assigned uids except those in the current deck
-  const assignedUids = new Set();
-
-    Object.entries(teams || {}).forEach(([teamKey, decks]) => {
-      decks.forEach((deck, idx) => {
-        if (teamKey === selectedTeamKey && idx === selectedDeckIndex) return; // skip current deck
-        Object.values(deck).forEach(role => {
-          if (role?.uid) assignedUids.add(role.uid);
-        });
-      });
-    });
-
-    return responders.filter(r =>
-      !assignedUids.has(r.uid) || r.uid === currentDeck?.[roleKey]?.uid
-    );
-  };
-
   return (
     <div className="modal-backdrop">
       <div className="modal">
         <div className="modal-content">
-          <h2>Edit Deck for Team {teamDate.toUpperCase()}</h2>
+          <h2>Edit Team for {teamDate.toUpperCase()}</h2>
 
           <div className="form-section">
             {Object.entries(roleLabels).map(([roleKey, label]) => (
@@ -71,28 +66,25 @@ export default function TeamEditorModal({
                     const selectedResponder = responders.find(r => r.uid === selectedUid);
 
                     setFormState(prev => {
-                      // 1. Find if selected responder already has a role
+                      // Find if selected responder already assigned elsewhere in this shift
                       const previousRoleKey = Object.keys(prev).find(
                         key => prev[key]?.uid === selectedUid
                       );
 
                       const updatedState = { ...prev };
 
-                      // 2. If the selected responder is already assigned to another role, swap them
                       if (previousRoleKey && previousRoleKey !== roleKey) {
-                        // Swap the two responders
+                        // Swap roles
                         const temp = updatedState[roleKey];
                         updatedState[roleKey] = selectedResponder;
                         updatedState[previousRoleKey] = temp || null;
                       } else {
-                        // Otherwise, just assign them normally and remove them elsewhere
-                        // Remove from all other roles
+                        // Remove from other roles and assign to current role
                         Object.keys(updatedState).forEach(key => {
                           if (updatedState[key]?.uid === selectedUid) {
                             updatedState[key] = null;
                           }
                         });
-                        // Assign to current role
                         updatedState[roleKey] = selectedResponder || null;
                       }
 

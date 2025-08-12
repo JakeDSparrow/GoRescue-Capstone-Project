@@ -1,37 +1,39 @@
 .modal-backdrop {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.65);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 999;
+  animation: fadeBackdrop 0.3s ease-in-out;
 }
 
 .modal {
-  background-color: white;
-  border-radius: 8px;
+  background-color: #ffffff;
+  border-radius: 16px;
   width: 90%;
-  max-width: 500px;
-  padding: 20px;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
-  animation: fadeIn 0.3s ease-in-out;
+  max-width: 600px;
+  padding: 40px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15), 0 5px 15px rgba(0, 0, 0, 0.08);
+  animation: fadeIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .modal-content h2 {
   margin-top: 0;
-  margin-bottom: 20px;
-  font-size: 20px;
+  margin-bottom: 32px;
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: #2c3e50;
   text-align: center;
+  letter-spacing: -0.5px;
 }
 
 .form-section {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
 .form-group {
@@ -40,42 +42,141 @@
 }
 
 .form-group label {
-  font-weight: bold;
-  margin-bottom: 6px;
+  font-weight: 500;
+  font-size: 1rem;
+  color: #2c3e50;
+  margin-bottom: 8px;
+  letter-spacing: -0.2px;
 }
 
 .form-group select {
-  padding: 8px;
-  border-radius: 4px;
-  border: 1px solid #ccc;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 2px solid #e5e7eb;
+  font-size: 1rem;
+  outline: none;
+  transition: all 0.3s ease;
+  background-color: #ffffff;
+  color: #374151;
+  font-family: inherit;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+  background-size: 16px;
+  padding-right: 40px;
+}
+
+.form-group select:hover {
+  border-color: #d1d5db;
+}
+
+.form-group select:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  background-color: #fefefe;
 }
 
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
+  gap: 16px;
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #f3f4f6;
 }
 
 .btn {
-  padding: 8px 16px;
+  padding: 16px 32px;
   border: none;
   cursor: pointer;
-  font-weight: bold;
-  border-radius: 4px;
+  font-weight: 500;
+  font-size: 1.1rem;
+  border-radius: 10px;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  min-width: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn:active {
+  transform: translateY(1px);
 }
 
 .btn-primary {
-  background-color: #4361ee;
+  background-color: #6366f1;
   color: white;
+  box-shadow: 0 2px 4px rgba(99, 102, 241, 0.2);
+}
+
+.btn-primary:hover {
+  background-color: #5855eb;
+  box-shadow: 0 4px 8px rgba(99, 102, 241, 0.25);
+  transform: translateY(-1px);
 }
 
 .btn-secondary {
-  background-color: #ccc;
-  color: black;
+  background-color: #f9fafb;
+  color: #374151;
+  border: 2px solid #e5e7eb;
 }
 
+.btn-secondary:hover {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+  transform: translateY(-1px);
+}
+
+/* Enhanced animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
+  from { 
+    opacity: 0; 
+    transform: translateY(-20px) scale(0.95); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0) scale(1); 
+  }
+}
+
+@keyframes fadeBackdrop {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .modal {
+    width: 95%;
+    padding: 24px 20px;
+    margin: 20px;
+    max-width: none;
+  }
+  
+  .modal-content h2 {
+    font-size: 1.3rem;
+    margin-bottom: 24px;
+  }
+  
+  .form-section {
+    gap: 16px;
+  }
+  
+  .form-group select {
+    padding: 12px 14px;
+    font-size: 16px; /* Prevents zoom on iOS */
+    padding-right: 36px;
+  }
+  
+  .modal-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .btn {
+    width: 100%;
+    padding: 14px 24px;
+  }
 }
