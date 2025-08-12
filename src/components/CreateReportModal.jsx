@@ -259,23 +259,23 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
           <select name="respondingTeam" value={form.respondingTeam} onChange={handleChange}>
             <option value="">Select Team & Shift</option>
             {Object.entries(teams || {}).map(([teamKey, teamShifts]) => {
-              // guard
               if (!teamShifts || typeof teamShifts !== 'object') return null;
 
-              // only consider dayShift/nightShift
               return ['dayShift', 'nightShift'].map((shiftKey) => {
                 const shift = teamShifts[shiftKey] || {};
-                // decide if shift has at least one assigned responder
                 const hasMembers = ROLE_KEYS.some(
                   (rk) => shift[rk] && (shift[rk].uid || shift[rk].fullName || shift[rk].name)
                 );
 
                 const formattedTeam = teamKey.charAt(0).toUpperCase() + teamKey.slice(1);
-                const formattedShift = shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift';
 
                 return (
-                  <option key={`${teamKey}-${shiftKey}`} value={`${teamKey}-${shiftKey}`} disabled={!hasMembers}>
-                    {`${formattedTeam} - ${formattedShift}`}
+                  <option
+                    key={`${teamKey}-${shiftKey}`}
+                    value={`${teamKey}-${shiftKey}`}
+                    disabled={!hasMembers}
+                  >
+                    {`Team ${formattedTeam}`}
                   </option>
                 );
               });
