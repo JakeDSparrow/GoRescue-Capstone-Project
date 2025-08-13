@@ -226,28 +226,24 @@
   color: white;
 }
 
+/* View Button */
 .dispatcher-page .btn-view {
   background-color: #3498db;
 }
 
 .dispatcher-page .btn-view:hover {
   background-color: #2980b9;
+  transform: translateY(-1px);
 }
 
-.dispatcher-page .btn-update {
+/* Edit Button */
+.dispatcher-page .btn-edit {
   background-color: #f39c12;
 }
 
-.dispatcher-page .btn-update:hover {
+.dispatcher-page .btn-edit:hover {
   background-color: #d68910;
-}
-
-.dispatcher-page .btn-delete {
-  background-color: #e74c3c;
-}
-
-.dispatcher-page .btn-delete:hover {
-  background-color: #c0392b;
+  transform: translateY(-1px);
 }
 
 /* === Team Organizer Deck Styles === */
@@ -389,38 +385,40 @@
   font-weight: 500;
   white-space: nowrap;
 }
+/* Edit Button */
 .edit-button {
   background-color: #2c3c54;
   color: white;
+  font-size: 0.9rem;
+  padding: 10px 16px;
+  border-radius: 7px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  font-weight: 500;
 }
 .edit-button:hover {
   background-color: #243043;
   transform: translateY(-1px);
 }
-.extend-button {
-  background-color: #059669;
+
+/* Clear Button */
+.clear-button {
+  background-color: #e74c3c;
   color: white;
+  font-size: 0.9rem;
+  padding: 10px 16px;
+  border-radius: 7px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  font-weight: 500;
 }
-.extend-button:hover {
-  background-color: #047857;
+.clear-button:hover {
+  background-color: #c0392b;
   transform: translateY(-1px);
 }
-.deactivate-button {
-  background-color: #dc2626;
-  color: white;
-}
-.deactivate-button:hover {
-  background-color: #b91c1c;
-  transform: translateY(-1px);
-}
-.activate-button {
-  background-color: #16a34a;
-  color: white;
-}
-.activate-button:hover {
-  background-color: #15803d;
-  transform: translateY(-1px);
-}
+
 
 /* Deck Roles List */
 .deck-body {

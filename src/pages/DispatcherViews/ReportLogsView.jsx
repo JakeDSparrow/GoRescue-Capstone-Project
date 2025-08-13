@@ -1,59 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import { emergencySeverityMap, statusMap } from '../../constants/dispatchConstants';
 import useFormatDate from '../../hooks/useFormatDate';
+import ViewModal from '../../components/ViewModal';
+import CreateRescueModal from '../../components/CreateReportModal';
 import '../../components/modalstyles/ViewModalStyles.css';
 
 function formatRespondingTeam(teamKey) {
   if (!teamKey) return 'N/A';
-
-  if (teamKey.toLowerCase().startsWith('team ')) {
-    return teamKey;
-  }
-
+  if (teamKey.toLowerCase().startsWith('team ')) return teamKey;
   const team = teamKey.split('-')[0];
   if (!team) return teamKey;
-
   return `Team ${team.charAt(0).toUpperCase() + team.slice(1)}`;
 }
 
 function safeRender(field) {
   if (field === null || field === undefined) return 'N/A';
   if (typeof field === 'object') {
-    if ('lat' in field && 'lng' in field) {
-      return `Lat: ${field.lat}, Lng: ${field.lng}`;
-    }
+    if ('lat' in field && 'lng' in field) return `Lat: ${field.lat}, Lng: ${field.lng}`;
     return JSON.stringify(field);
   }
   return String(field);
 }
 
-function ViewModal({ isOpen, onClose, report }) {
-  if (!isOpen || !report) return null;
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <header>
-          <h3>Report Details - {safeRender(report.reportId || report.id)}</h3>
-          <button className="btn-close" onClick={onClose} aria-label="Close modal">&times;</button>
-        </header>
-        <div className="modal-body">
-          <p><strong>Emergency Severity:</strong> {safeRender(report.emergencySeverity)}</p>
-          <p><strong>Reported By:</strong> {safeRender(report.reporter)}</p>
-          <p><strong>Contact:</strong> {safeRender(report.contact)}</p>
-          <p><strong>Location:</strong> {safeRender(report.location)}</p>
-          <p><strong>Responding Team:</strong> {formatRespondingTeam(report.respondingTeam)}</p>
-          <p><strong>Status:</strong> {safeRender(report.status)}</p>
-          <p><strong>Timestamp:</strong> {report.timestamp ? new Date(report.timestamp).toLocaleString() : 'N/A'}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate, onDelete }) {
+export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) {
   const { formatDateTime } = useFormatDate();
   const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
 
   useEffect(() => {
@@ -64,7 +36,7 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate, on
         emergencySeverity: 'critical',
         reporter: 'Test Reporter',
         contact: '09999999999',
-        location: { lat: 14.59, lng: 120.98 }, // object example
+        location: { lat: 14.59, lng: 120.98 },
         timestamp: new Date().toISOString(),
         respondingTeam: 'alpha-dayShift',
         status: 'dispatched'
@@ -73,15 +45,18 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate, on
     }
   }, [reportLogs, setReportLogs]);
 
-  function handleView(log) {
+  const handleView = (log) => {
     setSelectedReport(log);
     setViewModalOpen(true);
-  }
+  };
 
-  function closeModal() {
-    setViewModalOpen(false);
-    setSelectedReport(null);
-  }
+  const handleEdit = (log) => {
+    setSelectedReport(log);
+    setEditModalOpen(true);
+  };
+
+  const closeViewModal = () => setViewModalOpen(false);
+  const closeEditModal = () => setEditModalOpen(false);
 
   return (
     <div className="card">
@@ -110,8 +85,8 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate, on
                 </td>
               </tr>
             ) : (
-              reportLogs.map((log) => (
-                <tr key={log.id}>
+              reportLogs.map((log, index) => (
+                <tr key={`${log.id || log.reportId}-${index}`}>
                   <td>{safeRender(log.reportId || log.id)}</td>
                   <td>
                     <span
@@ -155,18 +130,11 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate, on
                       <i className="fas fa-eye" /> View
                     </button>
                     <button
-                      className="btn-action btn-update"
-                      onClick={() => onUpdate && onUpdate(log)}
-                      title="Update Report"
+                      className="btn-action btn-edit"
+                      onClick={() => handleEdit(log)}
+                      title="Edit Report"
                     >
-                      <i className="fas fa-edit" /> Update
-                    </button>
-                    <button
-                      className="btn-action btn-delete"
-                      onClick={() => onDelete && onDelete(log)}
-                      title="Delete Report"
-                    >
-                      <i className="fas fa-trash" /> Delete
+                      <i className="fas fa-edit" /> Edit
                     </button>
                   </td>
                 </tr>
@@ -176,11 +144,12 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate, on
         </table>
       </div>
 
-      {/* Modal rendered here */}
-      <ViewModal
-        isOpen={viewModalOpen}
-        onClose={closeModal}
-        report={selectedReport}
+      {/* Modals */}
+      <ViewModal isOpen={viewModalOpen} onClose={closeViewModal} report={selectedReport} />
+      <CreateRescueModal
+        isOpen={editModalOpen}
+        onClose={closeEditModal}
+        reportToEdit={selectedReport} // prefill logic inside CreateRescueModal
       />
     </div>
   );

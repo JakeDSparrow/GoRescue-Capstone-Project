@@ -13,7 +13,7 @@ import './modalstyles/CreateReportStyles.css';
 const GEOAPIFY_API_KEY = '499958bc884b4b8cae36c651db0a3d7d';
 const ROLE_KEYS = ['teamLeader', 'emt1', 'emt2', 'ambulanceDriver'];
 
-const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
+const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) => {
   const db = getFirestore();
   const [teams, setTeams] = useState({});
   const [loading, setLoading] = useState(false);
@@ -26,6 +26,29 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
     severity: '',
   });
 
+  // Prefill form when editing
+  useEffect(() => {
+    if (reportToEdit) {
+      setForm({
+        reporterName: reportToEdit.reporter || '',
+        contact: reportToEdit.contact || '',
+        location: reportToEdit.locationText || '',
+        notes: reportToEdit.notes || '',
+        respondingTeam: reportToEdit.respondingTeam || '',
+        severity: reportToEdit.emergencySeverity || '',
+      });
+    } else {
+      setForm({
+        reporterName: '',
+        contact: '',
+        location: '',
+        notes: '',
+        respondingTeam: '',
+        severity: '',
+      });
+    }
+  }, [reportToEdit, isOpen]);
+
   useEffect(() => {
     const fetchTeams = async () => {
       try {
@@ -33,34 +56,26 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
         const data = {};
 
         snapshot.forEach((docSnap) => {
-          const id = docSnap.id; // e.g. "alpha-dayShift" or older "alpha-0"
+          const id = docSnap.id;
           const raw = docSnap.data();
-
-          // split and normalize
           const parts = id.split('-');
           const teamKey = (parts[0] || '').toLowerCase();
-          // join the rest in case shift has '-' inside
           let shiftPart = parts.slice(1).join('-') || '';
 
-          // Normalize common shift names
           if (/dayshift/i.test(shiftPart)) shiftPart = 'dayShift';
           else if (/nightshift/i.test(shiftPart)) shiftPart = 'nightShift';
-          // If shiftPart empty or numeric (legacy), ignore or keep as fallback
-          // We'll still store it but not show it in the UI unless it matches dayShift/nightShift
           if (!teamKey) return;
 
           data[teamKey] = data[teamKey] || {};
           data[teamKey][shiftPart || 'unknown'] = raw;
         });
 
-        // Ensure alpha/bravo exist and have at least keys for dayShift/nightShift
         ['alpha', 'bravo'].forEach((k) => {
           data[k] = data[k] || {};
           data[k].dayShift = data[k].dayShift || {};
           data[k].nightShift = data[k].nightShift || {};
         });
 
-        console.debug('Normalized teams from Firestore:', data);
         setTeams(data);
       } catch (err) {
         console.error('Failed to fetch teams:', err);
@@ -74,7 +89,6 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  // --- geocoding (kept from your code) ---
   const geocodeLocation = async (locationText) => {
     if (!locationText) return null;
 
@@ -91,47 +105,25 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
 
     const selectBestFeature = (features) => {
       if (!features || features.length === 0) return null;
-      const sorted = features.sort((a, b) => {
-        const rankA = a.properties.rank?.importance ?? 0;
-        const rankB = b.properties.rank?.importance ?? 0;
-        return rankB - rankA;
-      });
-      return sorted[0];
+      return features.sort((a, b) => (b.properties.rank?.importance ?? 0) - (a.properties.rank?.importance ?? 0))[0];
     };
 
     try {
       const place = extractPlace(locationText);
-      console.log('Location Text:', locationText);
-      console.log('Extracted Place:', place);
-
       let response = await fetch(
-        `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(
-          locationText
-        )}&apiKey=${GEOAPIFY_API_KEY}`
+        `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(locationText)}&apiKey=${GEOAPIFY_API_KEY}`
       );
       let data = await response.json();
-      console.log('Geocoding Response (full text):', data);
-
       let bestFeature = selectBestFeature(data.features);
-      if (bestFeature) {
-        const { lat, lon } = bestFeature.properties;
-        return { lat, lng: lon };
-      }
+      if (bestFeature) return { lat: bestFeature.properties.lat, lng: bestFeature.properties.lon };
 
       if (place !== locationText) {
         response = await fetch(
-          `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(
-            place
-          )}&apiKey=${GEOAPIFY_API_KEY}`
+          `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(place)}&apiKey=${GEOAPIFY_API_KEY}`
         );
         data = await response.json();
-        console.log('Geocoding Response (extracted place):', data);
-
         bestFeature = selectBestFeature(data.features);
-        if (bestFeature) {
-          const { lat, lon } = bestFeature.properties;
-          return { lat, lng: lon };
-        }
+        if (bestFeature) return { lat: bestFeature.properties.lat, lng: bestFeature.properties.lon };
       }
 
       return null;
@@ -142,13 +134,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
   };
 
   const handleSubmit = async () => {
-    if (
-      !form.severity ||
-      !form.reporterName ||
-      !form.contact ||
-      !form.location ||
-      !form.respondingTeam
-    ) {
+    if (!form.severity || !form.reporterName || !form.contact || !form.location || !form.respondingTeam) {
       alert('Please fill in all required fields.');
       return;
     }
@@ -157,47 +143,37 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
     try {
       const coords = await geocodeLocation(form.location);
       if (!coords) {
-        alert(
-          'Failed to find coordinates for the location. Please provide a more specific location.'
-        );
+        alert('Failed to find coordinates for the location.');
         setLoading(false);
         return;
       }
 
-      const now = new Date();
-      const MM = String(now.getMonth() + 1).padStart(2, '0');
-      const YY = String(now.getFullYear()).slice(-2);
-      const prefix = MM + YY;
+      if (reportToEdit) {
+        // TODO: implement Firestore update logic here for editing
+        onReportCreated({ ...reportToEdit, ...form, location: coords });
+      } else {
+        const now = new Date();
+        const prefix = String(now.getMonth() + 1).padStart(2, '0') + String(now.getFullYear()).slice(-2);
+        const incidentsRef = collection(db, 'incidents');
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        const q = query(incidentsRef, where('timestamp', '>=', startOfMonth), where('timestamp', '<', startOfNextMonth));
+        const snapshot = await getDocs(q);
+        const reportId = `${prefix}-${String(snapshot.size + 1).padStart(4, '0')}`;
 
-      const incidentsRef = collection(db, 'incidents');
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        const docRef = await addDoc(incidentsRef, {
+          reportId,
+          emergencySeverity: form.severity.toLowerCase(),
+          reporter: form.reporterName,
+          contact: form.contact,
+          location: JSON.stringify(coords),
+          locationText: form.location,
+          notes: form.notes || '',
+          status: 'pending',
+          timestamp: serverTimestamp(),
+          respondingTeam: form.respondingTeam,
+        });
 
-      const q = query(
-        incidentsRef,
-        where('timestamp', '>=', startOfMonth),
-        where('timestamp', '<', startOfNextMonth)
-      );
-      const snapshot = await getDocs(q);
-      const count = snapshot.size;
-
-      const incrementalNumber = (count + 1).toString().padStart(4, '0');
-      const reportId = `${prefix}-${incrementalNumber}`;
-
-      const docRef = await addDoc(incidentsRef, {
-        reportId,
-        emergencySeverity: form.severity.toLowerCase(),
-        reporter: form.reporterName,
-        contact: form.contact,
-        location: JSON.stringify(coords),
-        locationText: form.location,
-        notes: form.notes || '',
-        status: 'pending',
-        timestamp: serverTimestamp(),
-        respondingTeam: form.respondingTeam, // e.g. "alpha-dayShift"
-      });
-
-      if (onReportCreated) {
         onReportCreated({
           id: docRef.id,
           reportId,
@@ -223,8 +199,8 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
         severity: '',
       });
     } catch (error) {
-      console.error('Error adding rescue report: ', error);
-      alert('Failed to create report.');
+      console.error('Error adding/editing report:', error);
+      alert('Failed to save report.');
     } finally {
       setLoading(false);
     }
@@ -236,10 +212,8 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
     <div className="modal-overlay">
       <div className="modal rescue-modal">
         <div className="modal-header">
-          <h2>Create Rescue Report</h2>
-          <button className="close-btn" onClick={onClose}>
-            &times;
-          </button>
+          <h2>{reportToEdit ? 'Edit Rescue Report' : 'Create Rescue Report'}</h2>
+          <button className="close-btn" onClick={onClose}>&times;</button>
         </div>
 
         <div className="modal-body">
@@ -252,34 +226,26 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
           <label>Location *</label>
           <input type="text" name="location" value={form.location} onChange={handleChange} />
 
-          <label>Notes (Description of incident)</label>
+          <label>Notes (Description)</label>
           <textarea name="notes" value={form.notes} onChange={handleChange}></textarea>
 
           <label>Assign Responding Team *</label>
           <select name="respondingTeam" value={form.respondingTeam} onChange={handleChange}>
             <option value="">Select Team & Shift</option>
-            {Object.entries(teams || {}).map(([teamKey, teamShifts]) => {
-              if (!teamShifts || typeof teamShifts !== 'object') return null;
-
-              return ['dayShift', 'nightShift'].map((shiftKey) => {
+            {Object.entries(teams).map(([teamKey, teamShifts]) =>
+              ['dayShift', 'nightShift'].map((shiftKey) => {
                 const shift = teamShifts[shiftKey] || {};
                 const hasMembers = ROLE_KEYS.some(
                   (rk) => shift[rk] && (shift[rk].uid || shift[rk].fullName || shift[rk].name)
                 );
-
                 const formattedTeam = teamKey.charAt(0).toUpperCase() + teamKey.slice(1);
-
                 return (
-                  <option
-                    key={`${teamKey}-${shiftKey}`}
-                    value={`${teamKey}-${shiftKey}`}
-                    disabled={!hasMembers}
-                  >
+                  <option key={`${teamKey}-${shiftKey}`} value={`${teamKey}-${shiftKey}`} disabled={!hasMembers}>
                     {`Team ${formattedTeam}`}
                   </option>
                 );
-              });
-            })}
+              })
+            )}
           </select>
 
           <label>Incident Severity *</label>
@@ -293,11 +259,11 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated }) => {
         </div>
 
         <div className="modal-footer">
-          <button onClick={handleSubmit} className="primary-btn" disabled={loading}>
-            {loading ? 'Saving...' : 'Save & Dispatch'}
-          </button>
-          <button onClick={onClose} className="secondary-btn">
+          <button className="cancel-btn" onClick={onClose} disabled={loading}>
             Cancel
+          </button>
+          <button className="submit-btn" onClick={handleSubmit} disabled={loading}>
+            {loading ? (reportToEdit ? 'Updating...' : 'Creating...') : reportToEdit ? 'Update Report' : 'Create Report'}
           </button>
         </div>
       </div>
