@@ -9,14 +9,28 @@
   --transition: 0.3s ease;
 }
 
-.dispatcher-page * {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+.dispatcher-page {
   font-family: "Segoe UI", sans-serif;
   font-size: 16px;
+  box-sizing: border-box;
 }
 
+.dispatcher-page *,
+.dispatcher-page *::before,
+.dispatcher-page *::after {
+  box-sizing: inherit;
+}
+
+/* Apply resets only to specific elements */
+.dispatcher-page h1,
+.dispatcher-page h2,
+.dispatcher-page h3,
+.dispatcher-page p,
+.dispatcher-page ul,
+.dispatcher-page li {
+  margin: 0;
+  padding: 0;
+}
 .dispatcher-page body,
 .dispatcher-page html,
 .dispatcher-page #root {
@@ -271,28 +285,6 @@
   letter-spacing: -0.5px;
 }
 
-/* Add Deck Button */
-.add-deck-btn {
-  background-color: #2c3c54;
-  color: white;
-  padding: 14px 24px;
-  font-size: 1rem;
-  border: none;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  font-weight: 500;
-}
-.add-deck-btn:hover {
-  background-color: #243043;
-  transform: translateY(-2px);
-}
-.add-deck-btn:disabled {
-  background-color: #a5b4ac;
-  cursor: not-allowed;
-}
-
 /* Deck Card Styling */
 .deck-card {
   background-color: #fff;
@@ -418,7 +410,6 @@
   background-color: #c0392b;
   transform: translateY(-1px);
 }
-
 
 /* Deck Roles List */
 .deck-body {

@@ -9,6 +9,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import './modalstyles/CreateReportStyles.css';
+import { emergencySeverityMap } from '../constants/dispatchConstants';
 
 const GEOAPIFY_API_KEY = '499958bc884b4b8cae36c651db0a3d7d';
 const ROLE_KEYS = ['teamLeader', 'emt1', 'emt2', 'ambulanceDriver'];
@@ -251,10 +252,13 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           <label>Incident Severity *</label>
           <select name="severity" value={form.severity} onChange={handleChange}>
             <option value="">Select Severity</option>
-            <option value="Critical">Critical (Highest Priority)</option>
-            <option value="High">High</option>
-            <option value="Moderate">Moderate</option>
-            <option value="Low">Low (Lowest Priority)</option>
+            {Object.entries(emergencySeverityMap).map(([key, severity]) => (
+              <option key={key} value={severity.label}>
+                <span className={`${key}-preview severity-preview`}></span>
+                {severity.label} ({severity.label === 'Critical' ? 'Highest Priority' : 
+                                  severity.label === 'Low' ? 'Lowest Priority' : ''})
+              </option>
+            ))}
           </select>
         </div>
 
