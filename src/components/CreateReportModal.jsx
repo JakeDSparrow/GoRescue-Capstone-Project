@@ -7,6 +7,8 @@ import {
   where,
   getDocs,
   serverTimestamp,
+  doc, // Added for updateDoc
+  updateDoc, // Added for updating documents
 } from 'firebase/firestore';
 import './modalstyles/CreateReportStyles.css';
 import { emergencySeverityMap } from '../constants/dispatchConstants';
@@ -17,6 +19,7 @@ const ROLE_KEYS = ['teamLeader', 'emt1', 'emt2', 'ambulanceDriver'];
 const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) => {
   const db = getFirestore();
   const [teams, setTeams] = useState({});
+  const [allResponders, setAllResponders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     reporterName: '',
@@ -50,13 +53,15 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
     }
   }, [reportToEdit, isOpen]);
 
+  // Fetch teams and all responders
   useEffect(() => {
-    const fetchTeams = async () => {
+    const fetchTeamsAndResponders = async () => {
       try {
-        const snapshot = await getDocs(collection(db, 'teams'));
-        const data = {};
+        // Fetch teams
+        const teamsSnapshot = await getDocs(collection(db, 'teams'));
+        const teamsData = {};
 
-        snapshot.forEach((docSnap) => {
+        teamsSnapshot.forEach((docSnap) => {
           const id = docSnap.id;
           const raw = docSnap.data();
           const parts = id.split('-');
@@ -67,23 +72,33 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           else if (/nightshift/i.test(shiftPart)) shiftPart = 'nightShift';
           if (!teamKey) return;
 
-          data[teamKey] = data[teamKey] || {};
-          data[teamKey][shiftPart || 'unknown'] = raw;
+          teamsData[teamKey] = teamsData[teamKey] || {};
+          teamsData[teamKey][shiftPart || 'unknown'] = raw;
         });
 
         ['alpha', 'bravo'].forEach((k) => {
-          data[k] = data[k] || {};
-          data[k].dayShift = data[k].dayShift || {};
-          data[k].nightShift = data[k].nightShift || {};
+          teamsData[k] = teamsData[k] || {};
+          teamsData[k].dayShift = teamsData[k].dayShift || {};
+          teamsData[k].nightShift = teamsData[k].nightShift || {};
         });
 
-        setTeams(data);
+        setTeams(teamsData);
+
+        // Fetch all responders
+        const respondersQuery = query(
+          collection(db, 'mdrrmo-users'),
+          where('role', '==', 'responder')
+        );
+        const respondersSnapshot = await getDocs(respondersQuery);
+        const respondersList = respondersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+        setAllResponders(respondersList);
+        
       } catch (err) {
-        console.error('Failed to fetch teams:', err);
+        console.error('Failed to fetch teams or responders:', err);
       }
     };
 
-    fetchTeams();
+    fetchTeamsAndResponders();
   }, [db]);
 
   const handleChange = (e) => {
@@ -148,11 +163,49 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         setLoading(false);
         return;
       }
+      
+      let teamData;
+      if (form.respondingTeam === 'all-responders') {
+        teamData = {
+          teamName: 'All Responders',
+          members: allResponders.map(r => ({ uid: r.uid, fullName: r.fullName }))
+        };
+      } else {
+        const [teamKey, shiftKey] = form.respondingTeam.split('-');
+        const teamDetails = teams[teamKey] && teams[teamKey][shiftKey];
+        teamData = {
+          teamName: `${teamKey.toUpperCase()} - ${shiftKey.toUpperCase()}`,
+          members: ROLE_KEYS.map(role => teamDetails[role]).filter(m => m)
+        };
+      }
+
+      const incidentData = {
+        emergencySeverity: form.severity.toLowerCase(),
+        reporter: form.reporterName,
+        contact: form.contact,
+        location: JSON.stringify(coords),
+        locationText: form.location,
+        notes: form.notes || '',
+        status: 'pending',
+        timestamp: serverTimestamp(),
+        respondingTeam: form.respondingTeam,
+        teamData: teamData,
+      };
+
+      let savedReport;
 
       if (reportToEdit) {
-        // TODO: implement Firestore update logic here for editing
-        onReportCreated({ ...reportToEdit, ...form, location: coords });
+        // Editing existing report
+        const docRef = doc(db, 'incidents', reportToEdit.id);
+        await updateDoc(docRef, { ...incidentData });
+        
+        savedReport = { 
+          ...reportToEdit, 
+          ...incidentData, 
+          location: coords 
+        };
       } else {
+        // Creating new report
         const now = new Date();
         const prefix = String(now.getMonth() + 1).padStart(2, '0') + String(now.getFullYear()).slice(-2);
         const incidentsRef = collection(db, 'incidents');
@@ -161,36 +214,33 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         const q = query(incidentsRef, where('timestamp', '>=', startOfMonth), where('timestamp', '<', startOfNextMonth));
         const snapshot = await getDocs(q);
         const reportId = `${prefix}-${String(snapshot.size + 1).padStart(4, '0')}`;
-
+        
         const docRef = await addDoc(incidentsRef, {
           reportId,
-          emergencySeverity: form.severity.toLowerCase(),
-          reporter: form.reporterName,
-          contact: form.contact,
-          location: JSON.stringify(coords),
-          locationText: form.location,
-          notes: form.notes || '',
-          status: 'pending',
-          timestamp: serverTimestamp(),
-          respondingTeam: form.respondingTeam,
+          ...incidentData,
         });
 
-        onReportCreated({
+        savedReport = {
           id: docRef.id,
           reportId,
-          emergencySeverity: form.severity.toLowerCase(),
-          reporter: form.reporterName,
-          contact: form.contact,
+          ...incidentData,
           location: coords,
-          locationText: form.location,
-          notes: form.notes || '',
-          status: 'pending',
           timestamp: new Date().toISOString(),
-          respondingTeam: form.respondingTeam,
-        });
+        };
       }
 
-      onClose();
+      // Check if onReportCreated is a function before calling it
+      if (typeof onReportCreated === 'function') {
+        onReportCreated(savedReport);
+      } else {
+        console.warn('onReportCreated is not a function or not provided');
+      }
+
+      // Close modal and reset form
+      if (typeof onClose === 'function') {
+        onClose();
+      }
+      
       setForm({
         reporterName: '',
         contact: '',
@@ -199,9 +249,23 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         respondingTeam: '',
         severity: '',
       });
+
+      // Show success message
+      alert(reportToEdit ? 'Report updated successfully!' : 'Report created successfully!');
+
     } catch (error) {
       console.error('Error adding/editing report:', error);
-      alert('Failed to save report.');
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      
+      // More specific error messages
+      if (error.code === 'permission-denied') {
+        alert('Permission denied. You may not have the required permissions to create reports.');
+      } else if (error.code === 'unauthenticated') {
+        alert('Authentication required. Please log in and try again.');
+      } else {
+        alert(`Failed to save report: ${error.message || 'Unknown error'}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -216,59 +280,62 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           <h2>{reportToEdit ? 'Edit Rescue Report' : 'Create Rescue Report'}</h2>
           <button className="close-btn" onClick={onClose}>&times;</button>
         </div>
+        
+        <div className="modal-content">
+          <div className="modal-body">
+            <label>Reporter Name *</label>
+            <input type="text" name="reporterName" value={form.reporterName} onChange={handleChange} />
 
-        <div className="modal-body">
-          <label>Reporter Name *</label>
-          <input type="text" name="reporterName" value={form.reporterName} onChange={handleChange} />
+            <label>Contact Number *</label>
+            <input type="text" name="contact" value={form.contact} onChange={handleChange} />
 
-          <label>Contact Number *</label>
-          <input type="text" name="contact" value={form.contact} onChange={handleChange} />
+            <label>Location *</label>
+            <input type="text" name="location" value={form.location} onChange={handleChange} />
 
-          <label>Location *</label>
-          <input type="text" name="location" value={form.location} onChange={handleChange} />
+            <label>Notes (Description)</label>
+            <textarea name="notes" value={form.notes} onChange={handleChange}></textarea>
 
-          <label>Notes (Description)</label>
-          <textarea name="notes" value={form.notes} onChange={handleChange}></textarea>
+            <label>Assign Responding Team *</label>
+            <select name="respondingTeam" value={form.respondingTeam} onChange={handleChange}>
+              <option value="">Select Team & Shift</option>
+              {/* New option for all responders */}
+              <option value="all-responders">All Responders</option>
+              {Object.entries(teams).map(([teamKey, teamShifts]) =>
+                ['dayShift', 'nightShift'].map((shiftKey) => {
+                  const shift = teamShifts[shiftKey] || {};
+                  const hasMembers = ROLE_KEYS.some(
+                    (rk) => shift[rk] && (shift[rk].uid || shift[rk].fullName || shift[rk].name)
+                  );
+                  const formattedTeam = teamKey.charAt(0).toUpperCase() + teamKey.slice(1);
+                  return (
+                    <option key={`${teamKey}-${shiftKey}`} value={`${teamKey}-${shiftKey}`} disabled={!hasMembers}>
+                      {`Team ${formattedTeam} (${shiftKey})`}
+                    </option>
+                  );
+                })
+              )}
+            </select>
 
-          <label>Assign Responding Team *</label>
-          <select name="respondingTeam" value={form.respondingTeam} onChange={handleChange}>
-            <option value="">Select Team & Shift</option>
-            {Object.entries(teams).map(([teamKey, teamShifts]) =>
-              ['dayShift', 'nightShift'].map((shiftKey) => {
-                const shift = teamShifts[shiftKey] || {};
-                const hasMembers = ROLE_KEYS.some(
-                  (rk) => shift[rk] && (shift[rk].uid || shift[rk].fullName || shift[rk].name)
-                );
-                const formattedTeam = teamKey.charAt(0).toUpperCase() + teamKey.slice(1);
-                return (
-                  <option key={`${teamKey}-${shiftKey}`} value={`${teamKey}-${shiftKey}`} disabled={!hasMembers}>
-                    {`Team ${formattedTeam}`}
-                  </option>
-                );
-              })
-            )}
-          </select>
+            <label>Incident Severity *</label>
+            <select name="severity" value={form.severity} onChange={handleChange}>
+              <option value="">Select Severity</option>
+              {Object.entries(emergencySeverityMap).map(([key, severity]) => (
+                <option key={key} value={severity.label}>
+                  {severity.label} ({severity.label === 'Critical' ? 'Highest Priority' :
+                  severity.label === 'Low' ? 'Lowest Priority' : ''})
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <label>Incident Severity *</label>
-          <select name="severity" value={form.severity} onChange={handleChange}>
-            <option value="">Select Severity</option>
-            {Object.entries(emergencySeverityMap).map(([key, severity]) => (
-              <option key={key} value={severity.label}>
-                <span className={`${key}-preview severity-preview`}></span>
-                {severity.label} ({severity.label === 'Critical' ? 'Highest Priority' : 
-                                  severity.label === 'Low' ? 'Lowest Priority' : ''})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="modal-footer">
-          <button className="cancel-btn" onClick={onClose} disabled={loading}>
-            Cancel
-          </button>
-          <button className="submit-btn" onClick={handleSubmit} disabled={loading}>
-            {loading ? (reportToEdit ? 'Updating...' : 'Creating...') : reportToEdit ? 'Update Report' : 'Create Report'}
-          </button>
+          <div className="modal-footer">
+            <button className="cancel-btn" onClick={onClose} disabled={loading}>
+              Cancel
+            </button>
+            <button className="submit-btn" onClick={handleSubmit} disabled={loading}>
+              {loading ? (reportToEdit ? 'Updating...' : 'Creating...') : reportToEdit ? 'Update Report' : 'Create Report'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

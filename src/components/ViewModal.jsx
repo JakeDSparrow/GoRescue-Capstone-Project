@@ -1,4 +1,5 @@
 import React from 'react';
+import { emergencySeverityMap } from '../constants/dispatchConstants';
 import './modalstyles/ViewModalStyles.css';
 
 function formatRespondingTeam(teamKey) {
@@ -17,9 +18,13 @@ function formatRespondingTeam(teamKey) {
 function getSeverityClass(severity) {
   if (!severity) return '';
   const severityLower = severity.toLowerCase();
+  
+  // Match all 4 CSS classes you have defined
+  if (severityLower.includes('critical')) return 'severity-critical';
   if (severityLower.includes('high')) return 'severity-high';
-  if (severityLower.includes('medium')) return 'severity-medium';
+  if (severityLower.includes('moderate') || severityLower.includes('medium')) return 'severity-moderate';
   if (severityLower.includes('low')) return 'severity-low';
+  
   return '';
 }
 
@@ -50,10 +55,35 @@ export default function ViewModal({ isOpen, onClose, report }) {
   };
 
   const renderSeverity = (severity) => {
+    if (!severity) return 'N/A';
+    
+    const severityLower = severity.toLowerCase();
+    let matchedConfig = null;
+    let matchedKey = '';
+    
+    for (const [key, config] of Object.entries(emergencySeverityMap)) {
+      if (severityLower.includes(key)) {
+        matchedConfig = config;
+        matchedKey = key;
+        break;
+      }
+    }
+    
+    if (matchedConfig) {
+      return (
+        <span className={`severity-${matchedKey}`}>
+          <i className={`fa ${matchedConfig.icon}`} style={{marginRight: '4px'}}></i>
+          {matchedConfig.label}
+        </span>
+      );
+    }
+    
+    // Fallback to basic styling
     const severityClass = getSeverityClass(severity);
     if (severityClass) {
       return <span className={severityClass}>{safeRender(severity)}</span>;
     }
+    
     return safeRender(severity);
   };
 

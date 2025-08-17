@@ -60,22 +60,22 @@ export const emergencyTypeMap = {
 
 export const emergencySeverityMap = {
   critical: {
-    icon: 'fa-exclamation-triangle',
+    icon: 'fas fa-exclamation-triangle',
     color: '#e74c3c',
     label: 'Critical',
   },
   high: {
-    icon: 'fa-exclamation-circle',
+    icon: 'fas fa-exclamation-circle',
     color: '#e67e22',
     label: 'High',
   },
   moderate: {
-    icon: 'fa-info-circle',
+    icon: 'fas fa-info-circle',
     color: '#f1c40f',
     label: 'Moderate',
   },
   low: {
-    icon: 'fa-check-circle',
+    icon: 'fas fa-check-circle',
     color: '#2ecc71',
     label: 'Low',
   },

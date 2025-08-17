@@ -48,11 +48,7 @@ export default function DispatcherPage() {
   const highlightTimers = useRef({});
   const [currentTeam, setCurrentTeam] = useState(null);
   const [teams, setTeams] = useState({ alpha: [], bravo: [] });
-  const [deployedNotifs, setDeployedNotifs] = useState(() => {
-    const saved = localStorage.getItem('deployedNotifs');
-    return saved ? JSON.parse(saved) : {};
-  });
-
+  
   // Check user role on load
   useEffect(() => {
     const auth = getAuth();
@@ -72,14 +68,6 @@ export default function DispatcherPage() {
     };
     checkRole();
   }, []);
-
-  const markAsDeployed = (notifId) => {
-    setDeployedNotifs((prev) => {
-      const updated = { ...prev, [notifId]: true };
-      localStorage.setItem('deployedNotifs', JSON.stringify(updated));
-      return updated;
-    });
-  };
 
   const toggleSidebar = () => setSidebarCollapsed(!sidebarCollapsed);
 
@@ -148,7 +136,7 @@ export default function DispatcherPage() {
 
       L.circle([coords.lat, coords.lng], {
         color: '#e74c3c',
-        fillColor: '#e74c3c',
+        fillColor: '#e74c4c',
         fillOpacity: 0.2,
         radius: 20
       }).addTo(map);
@@ -247,7 +235,7 @@ export default function DispatcherPage() {
   // Firestore realtime fetch report logs
   useEffect(() => {
     const incidentsRef = collection(db, 'incidents');
-    const q = query(incidentsRef, where('status', 'in', ['pending', 'in-progress'])); 
+    const q = query(incidentsRef, where('status', 'in', ['pending', 'in-progress']));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedReports = snapshot.docs.map(doc => {

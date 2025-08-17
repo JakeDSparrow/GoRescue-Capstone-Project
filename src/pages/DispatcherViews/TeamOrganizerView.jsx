@@ -38,9 +38,9 @@ function getShiftTimes(shiftKey) {
   return { shiftStart: start.toISOString(), shiftEnd: end.toISOString() };
 }
 
-function isWithinShift(shift) {
+// Update the function to accept the current time as a parameter
+function isWithinShift(shift, now) {
   if (!shift) return false;
-  const now = new Date();
   const start = new Date(shift.shiftStart);
   const end = new Date(shift.shiftEnd);
   return end > start ? now >= start && now < end : now >= start || now < end;
@@ -60,6 +60,8 @@ export default function TeamOrganizerView() {
   const [selectedTeamKey, setSelectedTeamKey] = useState(null);
   const [selectedShiftKey, setSelectedShiftKey] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  // Store the current time in state, not just a 'tick'
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   const db = getFirestore();
 
@@ -99,6 +101,14 @@ export default function TeamOrganizerView() {
 
     loadResponders();
     loadTeams();
+
+    // Set up a timer to update the 'currentTime' state
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000); // Update every minute
+
+    // Cleanup function to clear the interval when the component unmounts
+    return () => clearInterval(interval);
   }, [db]);
 
   const handleEdit = (teamKey, shiftKey) => {
@@ -137,7 +147,8 @@ export default function TeamOrganizerView() {
               const shift = teams[teamKey][shiftKey];
               if (!shift) return null;
 
-              const isActive = hasMembers(shift) && isWithinShift(shift);
+              // Pass the state variable to the function
+              const isActive = hasMembers(shift) && isWithinShift(shift, currentTime);
               const startTime = new Date(shift.shiftStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
               const endTime = new Date(shift.shiftEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
