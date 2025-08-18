@@ -7,8 +7,8 @@ import {
   where,
   getDocs,
   serverTimestamp,
-  doc, // Added for updateDoc
-  updateDoc, // Added for updating documents
+  doc,
+  updateDoc,
 } from 'firebase/firestore';
 import './modalstyles/CreateReportStyles.css';
 import { emergencySeverityMap } from '../constants/dispatchConstants';
@@ -274,68 +274,65 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay">
-      <div className="modal rescue-modal">
-        <div className="modal-header">
+    <div className="create-modal-overlay">
+      <div className="create-modal">
+        <div className="create-modal-header">
           <h2>{reportToEdit ? 'Edit Rescue Report' : 'Create Rescue Report'}</h2>
           <button className="close-btn" onClick={onClose}>&times;</button>
         </div>
         
-        <div className="modal-content">
-          <div className="modal-body">
-            <label>Reporter Name *</label>
-            <input type="text" name="reporterName" value={form.reporterName} onChange={handleChange} />
+        <div className="create-modal-body">
+          <label>Reporter Name *</label>
+          <input type="text" name="reporterName" value={form.reporterName} onChange={handleChange} />
 
-            <label>Contact Number *</label>
-            <input type="text" name="contact" value={form.contact} onChange={handleChange} />
+          <label>Contact Number *</label>
+          <input type="text" name="contact" value={form.contact} onChange={handleChange} />
 
-            <label>Location *</label>
-            <input type="text" name="location" value={form.location} onChange={handleChange} />
+          <label>Location *</label>
+          <input type="text" name="location" value={form.location} onChange={handleChange} />
 
-            <label>Notes (Description)</label>
-            <textarea name="notes" value={form.notes} onChange={handleChange}></textarea>
+          <label>Notes (Description)</label>
+          <textarea name="notes" value={form.notes} onChange={handleChange}></textarea>
 
-            <label>Assign Responding Team *</label>
-            <select name="respondingTeam" value={form.respondingTeam} onChange={handleChange}>
-              <option value="">Select Team & Shift</option>
-              {/* New option for all responders */}
-              <option value="all-responders">All Responders</option>
-              {Object.entries(teams).map(([teamKey, teamShifts]) =>
-                ['dayShift', 'nightShift'].map((shiftKey) => {
-                  const shift = teamShifts[shiftKey] || {};
-                  const hasMembers = ROLE_KEYS.some(
-                    (rk) => shift[rk] && (shift[rk].uid || shift[rk].fullName || shift[rk].name)
-                  );
-                  const formattedTeam = teamKey.charAt(0).toUpperCase() + teamKey.slice(1);
-                  return (
-                    <option key={`${teamKey}-${shiftKey}`} value={`${teamKey}-${shiftKey}`} disabled={!hasMembers}>
-                      {`Team ${formattedTeam} (${shiftKey})`}
-                    </option>
-                  );
-                })
-              )}
-            </select>
+          <label>Assign Responding Team *</label>
+          <select name="respondingTeam" value={form.respondingTeam} onChange={handleChange}>
+            <option value="">Select Team & Shift</option>
+            <option value="all-responders">All Responders</option>
+            {Object.entries(teams).map(([teamKey, teamShifts]) =>
+              ['dayShift', 'nightShift'].map((shiftKey) => {
+                const shift = teamShifts[shiftKey] || {};
+                const hasMembers = ROLE_KEYS.some(
+                  (rk) => shift[rk] && (shift[rk].uid || shift[rk].fullName || shift[rk].name)
+                );
+                const formattedTeam = teamKey.charAt(0).toUpperCase() + teamKey.slice(1);
+                return (
+                  <option key={`${teamKey}-${shiftKey}`} value={`${teamKey}-${shiftKey}`} disabled={!hasMembers}>
+                    {`Team ${formattedTeam} (${shiftKey})`}
+                  </option>
+                );
+              })
+            )}
+          </select>
 
-            <label>Incident Severity *</label>
-            <select name="severity" value={form.severity} onChange={handleChange}>
-              <option value="">Select Severity</option>
-              {Object.entries(emergencySeverityMap).map(([key, severity]) => (
-                <option key={key} value={severity.label}>
-                  {severity.label} ({severity.label === 'Critical' ? 'Highest Priority' :
-                  severity.label === 'Low' ? 'Lowest Priority' : ''})
-                </option>
-              ))}
-            </select>
-          </div>
+          <label>Incident Severity *</label>
+          <select name="severity" value={form.severity} onChange={handleChange}>
+            <option value="">Select Severity</option>
+            {Object.entries(emergencySeverityMap).map(([key, severity]) => (
+              <option key={key} value={severity.label}>
+                {severity.label} ({severity.label === 'Critical' ? 'Highest Priority' :
+                severity.label === 'Low' ? 'Lowest Priority' : ''})
+              </option>
+            ))}
+          </select>
+        </div>
 
-          <div className="modal-footer">
-            <button className="cancel-btn" onClick={onClose} disabled={loading}>
-              Cancel
-            </button>
-            <button className="submit-btn" onClick={handleSubmit} disabled={loading}>
-              {loading ? (reportToEdit ? 'Updating...' : 'Creating...') : reportToEdit ? 'Update Report' : 'Create Report'}
-            </button>
-          </div>
+        <div className="create-modal-footer">
+          <button className="create-cancel-btn" onClick={onClose} disabled={loading}>
+            Cancel
+          </button>
+          <button className="create-submit-btn" onClick={handleSubmit} disabled={loading}>
+            {loading ? (reportToEdit ? 'Updating...' : 'Creating...') : reportToEdit ? 'Update Report' : 'Create Report'}
+          </button>
         </div>
       </div>
     </div>

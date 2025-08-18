@@ -96,32 +96,54 @@ export default function ViewModal({ isOpen, onClose, report }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <header>
-          <h3>Report Details - {safeRender(report.reportId || report.id)}</h3>
-          <button className="btn-close" onClick={onClose} aria-label="Close modal">&times;</button>
-        </header>
-        <div className="modal-body">
-          <p>
-            <strong>Emergency Severity:</strong> 
-            {renderSeverity(report.emergencySeverity)}
-          </p>
-          <p><strong>Reported By:</strong> {safeRender(report.reporter)}</p>
-          <p>
-            <strong>Contact:</strong> 
-            <span className="contact-info">{safeRender(report.contact)}</span>
-          </p>
-          <p>
-            <strong>Location:</strong> 
-            <span className="location-coords">{safeRender(report.locationText)}</span>
-          </p>
-          <p><strong>Responding Team:</strong> {formatRespondingTeam(report.respondingTeam)}</p>
-          <p>
-            <strong>Status:</strong> 
-            {renderStatus(report.status)}
-          </p>
-          <p><strong>Timestamp:</strong> {report.timestamp ? new Date(report.timestamp).toLocaleString() : 'N/A'}</p>
+    <div className="view-modal-overlay" onClick={onClose}>
+      <div className="view-modal" onClick={e => e.stopPropagation()}>
+        <div className="view-modal-header">
+          <h2>Report Details - {safeRender(report.reportId || report.id)}</h2>
+          <button className="close-btn" onClick={onClose} aria-label="Close modal">&times;</button>
+        </div>
+        
+        <div className="view-modal-body">
+          <div className="view-detail-row">
+            <div className="view-detail-label">Emergency Severity:</div>
+            <div className="view-detail-value">{renderSeverity(report.emergencySeverity)}</div>
+          </div>
+          
+          <div className="view-detail-row">
+            <div className="view-detail-label">Reported By:</div>
+            <div className="view-detail-value">{safeRender(report.reporter)}</div>
+          </div>
+          
+          <div className="view-detail-row">
+            <div className="view-detail-label">Contact:</div>
+            <div className="view-detail-value">
+              <span className="contact-info">{safeRender(report.contact)}</span>
+            </div>
+          </div>
+          
+          <div className="view-detail-row">
+            <div className="view-detail-label">Location:</div>
+            <div className="view-detail-value">
+              <span className="location-coords">{safeRender(report.locationText)}</span>
+            </div>
+          </div>
+          
+          <div className="view-detail-row">
+            <div className="view-detail-label">Responding Team:</div>
+            <div className="view-detail-value">{formatRespondingTeam(report.respondingTeam)}</div>
+          </div>
+          
+          <div className="view-detail-row">
+            <div className="view-detail-label">Status:</div>
+            <div className="view-detail-value">{renderStatus(report.status)}</div>
+          </div>
+          
+          <div className="view-detail-row">
+            <div className="view-detail-label">Timestamp:</div>
+            <div className="view-detail-value">
+              {report.timestamp ? new Date(report.timestamp).toLocaleString() : 'N/A'}
+            </div>
+          </div>
         </div>
       </div>
     </div>
