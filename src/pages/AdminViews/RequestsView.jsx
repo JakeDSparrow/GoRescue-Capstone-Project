@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   collection,
   addDoc,
+  updateDoc,
   deleteDoc,
   doc,
   serverTimestamp,
@@ -169,7 +170,14 @@ const RequestsView = () => {
     try {
       if (isEditMode && editId) {
         const ref = doc(db, 'mdrrmo-requests', editId);
-        await updateDoc(ref, newRequest);
+        await updateDoc(ref, {
+          title: newRequest.title,
+          type: newRequest.type,
+          description: newRequest.description,
+          submittedBy: newRequest.submittedBy || 'Admin',
+          status: newRequest.status || 'Pending',
+          updatedAt: serverTimestamp()
+        });
         alert('Request updated!');
       } else {
         await addDoc(collection(db, 'mdrrmo-requests'), {
