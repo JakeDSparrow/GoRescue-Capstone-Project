@@ -1,18 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   collection,
-  getDocs,
   addDoc,
   updateDoc,
   deleteDoc,
   doc,
   serverTimestamp,
   query,
-  orderBy
+  orderBy,
+  onSnapshot
 } from 'firebase/firestore';
 import { db } from '../../firebase';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import RequestModal from '../../components/RequestsModal';
 
 const RequestsView = () => {
@@ -29,37 +28,148 @@ const RequestsView = () => {
     status: 'Pending'
   });
 
-  const fetchRequests = async () => {
-    try {
-      setLoading(true);
-      const q = query(collection(db, 'mdrrmo-requests'), orderBy('submittedAt', 'desc'));
-      const snapshot = await getDocs(q);
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setRequests(data);
-    } catch (err) {
-      console.error("Failed to fetch requests:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchRequests();
+  const toDate = useCallback((value) => {
+    if (!value) return null;
+    if (typeof value?.toDate === 'function') return value.toDate();
+    return new Date(value);
   }, []);
 
-  const handleDownloadPDF = async (id) => {
-    const requestEl = document.getElementById(`request-${id}`);
-    if (!requestEl) return;
+  useEffect(() => {
+    setLoading(true);
+    const qRef = query(collection(db, 'mdrrmo-requests'), orderBy('submittedAt', 'desc'));
+    const unsubscribe = onSnapshot(
+      qRef,
+      (snapshot) => {
+        setRequests(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+      },
+      () => setLoading(false)
+    );
+    return () => unsubscribe();
+  }, []);
 
-    const canvas = await html2canvas(requestEl);
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF();
-    const imgProps = pdf.getImageProperties(imgData);
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+  const generateRequestPDF = (req) => {
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 48;
+    let y = margin;
 
-    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save(`request-${id}.pdf`);
+    const addHeader = (title) => {
+      // Background bar
+      pdf.setFillColor(27, 67, 113);
+      pdf.rect(0, 0, pageWidth, 72, 'F');
+      
+      // Logo (Replace with your base64 image or a valid URL)
+      // This is a placeholder. You'll need to provide the actual image data.
+      // For example, const logo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgA...'
+      // pdf.addImage(logo, 'PNG', margin, 12, 48, 48);
+
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(18);
+      pdf.text(title, margin, 44);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(10);
+      const now = new Date();
+      pdf.text(`Generated: ${now.toLocaleString()}`, pageWidth - margin, 44, { align: 'right' });
+      y = 96;
+    };
+
+    const addFooter = (pageNumber) => {
+      pdf.setFontSize(9);
+      pdf.setTextColor(120);
+      pdf.text(`Page ${pageNumber}`, pageWidth / 2, pageHeight - 24, { align: 'center' });
+    };
+
+    const drawDivider = () => {
+      pdf.setDrawColor(220);
+      pdf.line(margin, y, pageWidth - margin, y);
+      y += 16;
+    };
+
+    const addField = (label, value) => {
+      const safe = (value ?? '').toString();
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(33);
+      pdf.setFontSize(11);
+      pdf.text(label, margin, y);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(60);
+      const lineHeight = 16;
+      const maxWidth = pageWidth - margin * 2;
+      const lines = pdf.splitTextToSize(safe, maxWidth);
+      y += 14;
+      lines.forEach((line) => {
+        if (y > pageHeight - margin - 40) {
+          addFooter(pdf.getNumberOfPages());
+          pdf.addPage();
+          y = margin;
+          addHeader('Municipal DRRMO - Request Report');
+        }
+        pdf.text(line, margin, y);
+        y += lineHeight;
+      });
+      y += 4;
+    };
+
+    addHeader('Municipal DRRMO - Request Report');
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(20);
+    pdf.setFontSize(16);
+    pdf.text(req.title || 'Request', margin, y);
+    y += 10;
+    drawDivider();
+
+    // Request Details Section
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(50);
+    pdf.setFontSize(12);
+    pdf.text('Request Details', margin, y);
+    y += 16;
+    pdf.setDrawColor(200);
+    pdf.line(margin, y, margin + 100, y);
+    y += 8;
+
+    addField('Request ID', req.id || '');
+    addField('Type', req.type || '');
+    addField('Submitted By', req.submittedBy || '');
+    const submittedAt = toDate(req.submittedAt)?.toLocaleString() || '';
+    addField('Submitted At', submittedAt);
+    
+    y += 12;
+    drawDivider();
+
+    // Description Section
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(50);
+    pdf.setFontSize(12);
+    pdf.text('Description', margin, y);
+    y += 16;
+    pdf.setDrawColor(200);
+    pdf.line(margin, y, margin + 100, y);
+    y += 8;
+
+    // Use a single field for the description
+    addField('', req.description || '');
+
+    // Signature Line
+    if (y < pageHeight - margin - 72) {
+      y = pageHeight - margin - 72;
+    }
+    pdf.setDrawColor(160);
+    pdf.line(margin, y, margin + 200, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(80);
+    pdf.text('Prepared by', margin, y + 14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Admin', margin, y + 28);
+    // You can also add an image of the signature here
+    // pdf.addImage('path/to/signature-image.png', 'PNG', margin, y - 40, 60, 20);
+
+    addFooter(pdf.getNumberOfPages());
+    pdf.save(`request-${req.id || 'report'}.pdf`);
   };
 
   const handleDelete = async (id) => {
@@ -97,7 +207,13 @@ const RequestsView = () => {
     try {
       if (isEditMode && editId) {
         const ref = doc(db, 'mdrrmo-requests', editId);
-        await updateDoc(ref, newRequest);
+        await updateDoc(ref, {
+          title: newRequest.title,
+          type: newRequest.type,
+          description: newRequest.description,
+          submittedBy: newRequest.submittedBy,
+          status: newRequest.status
+        });
         alert('Request updated!');
       } else {
         await addDoc(collection(db, 'mdrrmo-requests'), {
@@ -117,19 +233,10 @@ const RequestsView = () => {
       });
       setIsEditMode(false);
       setEditId(null);
-      await fetchRequests();
+      // onSnapshot will refresh the list automatically
     } catch (err) {
       console.error('Error submitting request:', err);
       alert('Failed to submit request');
-    }
-  };
-
-  const handleStatusChange = async (id, newStatus) => {
-    try {
-      await updateDoc(doc(db, 'mdrrmo-requests', id), { status: newStatus });
-      await fetchRequests();
-    } catch (err) {
-      console.error('Error updating status:', err);
     }
   };
 
@@ -167,31 +274,16 @@ const RequestsView = () => {
             <p><strong>Type:</strong> {req.type}</p>
             <p><strong>Description:</strong> {req.description}</p>
             <p><strong>Submitted By:</strong> {req.submittedBy}</p>
-            <p><strong>Date:</strong> {req.submittedAt?.toDate().toLocaleString()}</p>
-            <p>
-              <strong>Status:</strong>{" "}
-              <span className={`badge px-3 py-1 status-badge ${req.status.toLowerCase()}`}>
-                {req.status}
-              </span>
-              <select
-                className="form-select form-select-sm d-inline w-auto ms-3"
-                value={req.status}
-                onChange={(e) => handleStatusChange(req.id, e.target.value)}
-              >
-                <option value="Pending">Pending</option>
-                <option value="Approved">Approved</option>
-                <option value="Completed">Completed</option>
-              </select>
-            </p>
+            <p><strong>Date:</strong> {toDate(req.submittedAt)?.toLocaleString()}</p>
 
             <div className="request-actions">
-              <button type="button" className="btn btn-sm btn-outline-primary" onClick={()=> handleDownloadPDF(req.id)}>
-                📄 Download PDF
+              <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => generateRequestPDF(req)}>
+                📄 Generate PDF
               </button>
-              <button type="button" className="btn btn-sm btn-warning" onClick={()=> handleEdit(req)}>
+              <button type="button" className="btn btn-sm btn-warning" onClick={() => handleEdit(req)}>
                 ✏️ Edit
               </button>
-              <button type="button" className="btn btn-sm btn-danger" onClick={()=> handleDelete(req.id)}>
+              <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDelete(req.id)}>
                 🗑️ Delete
               </button>
             </div>

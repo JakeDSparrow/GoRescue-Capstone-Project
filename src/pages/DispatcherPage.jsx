@@ -13,8 +13,10 @@ import CreateRescueModal from '../components/CreateReportModal';
 import Logo from '../assets/GoRescueLogo.webp';
 import L from 'leaflet';
 import { emergencySeverityMap } from '../constants/dispatchConstants';
+import { useNavigate } from 'react-router-dom';
 
 export default function DispatcherPage() {
+  const navigate = useNavigate(); // for routing
   const [activeView, setActiveView] = useState('map-view');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -23,13 +25,9 @@ export default function DispatcherPage() {
     if (!saved) return [];
     try {
       const parsed = JSON.parse(saved);
-      // parse location if stored as stringified JSON
       return parsed.map(r => ({
         ...r,
-        location:
-          typeof r.location === 'string'
-            ? JSON.parse(r.location)
-            : r.location,
+        location: typeof r.location === 'string' ? JSON.parse(r.location) : r.location,
       }));
     } catch {
       return [];
@@ -38,6 +36,8 @@ export default function DispatcherPage() {
   const [highlightedNotifIds, setHighlightedNotifIds] = useState([]);
   const [notifCount, setNotifCount] = useState(0);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
   const db = getFirestore();
   const notificationAudio = useRef(new Audio(alertSound));
   const mapRef = useRef(null);
@@ -48,12 +48,10 @@ export default function DispatcherPage() {
   const highlightTimers = useRef({});
   const [currentTeam, setCurrentTeam] = useState(null);
   const [teams, setTeams] = useState({ alpha: [], bravo: [] });
-  
-  // Check user role on load
+
+  // Check user role
   useEffect(() => {
     const auth = getAuth();
-    const db = getFirestore();
-
     const checkRole = async () => {
       const user = auth.currentUser;
       if (!user) return;
@@ -67,7 +65,7 @@ export default function DispatcherPage() {
       }
     };
     checkRole();
-  }, []);
+  }, [db]);
 
   const toggleSidebar = () => setSidebarCollapsed(!sidebarCollapsed);
 
@@ -88,7 +86,7 @@ export default function DispatcherPage() {
 
   const handleMouseLeave = (id) => startHighlightTimer(id);
 
-  // Notification arrival effect: play sound & flash title only on new notifications
+  // Notification effect
   useEffect(() => {
     if (notifications.length > prevNotifCount.current) {
       notificationAudio.current.play().catch(() => {});
@@ -116,7 +114,6 @@ export default function DispatcherPage() {
     prevNotifCount.current = notifications.length;
   }, [notifications]);
 
-  // Parse coords and zoom map to notif location
   const viewNotificationOnMap = (coordsStr) => {
     const coords = typeof coordsStr === 'string' ? JSON.parse(coordsStr) : coordsStr;
     setActiveView('map-view');
@@ -143,7 +140,6 @@ export default function DispatcherPage() {
     }, 400);
   };
 
-  // Dispatch a team for a notification
   const dispatchTeam = (notificationId, teamId) => {
     const notification = notifications.find(n => n.id === notificationId);
     if (!notification) return;
@@ -156,17 +152,13 @@ export default function DispatcherPage() {
     };
     setNotifications(prev => prev.map(n => n.id === notificationId ? updatedNotification : n));
 
-    // Create new report log with parsed coords & timestamp
     const newLog = {
       id: `RPT-${new Date().getFullYear()}-${reportLogs.length + 1}`,
       reporter: notification.reporter,
       contact: notification.reporterContact || notification.contact,
       timestamp: new Date().toISOString(),
       emergencySeverity: notification.severity,
-      location:
-        typeof notification.location === 'string'
-          ? JSON.parse(notification.location)
-          : notification.location,
+      location: typeof notification.location === 'string' ? JSON.parse(notification.location) : notification.location,
       details: notification.details,
       respondingTeam: `Team ${teamId.charAt(0).toUpperCase() + teamId.slice(1)} - ${
         emergencySeverityMap[notification.severity]?.label || ''
@@ -176,7 +168,6 @@ export default function DispatcherPage() {
 
     setReportLogs(prev => {
       const updatedLogs = [...prev, newLog];
-      // Store stringified location to localStorage for persistence
       localStorage.setItem('reportLogs', JSON.stringify(updatedLogs.map(r => ({
         ...r,
         location: JSON.stringify(r.location)
@@ -192,13 +183,12 @@ export default function DispatcherPage() {
       medic: { uid: Date.now() + 2, name: `Medic ${teamName.toUpperCase()}` },
       support: { uid: Date.now() + 3, name: `Support ${teamName.toUpperCase()}` }
     };
-    setTeams((prevTeams) => ({
-      ...prevTeams,
+    setTeams(prev => ({
+      ...prev,
       [teamName]: [teamDeck],
     }));
   };
 
-  // Format datetime strings for UI
   const formatDateTime = (datetimeStr) => {
     if (!datetimeStr) return 'N/A';
     const date = new Date(datetimeStr);
@@ -206,7 +196,6 @@ export default function DispatcherPage() {
     return date.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
   };
 
-  // Add newly created reports from modal to reportLogs
   const handleReportCreated = (newReport) => {
     const normalizedReport = {
       ...newReport,
@@ -216,13 +205,10 @@ export default function DispatcherPage() {
       contact: newReport.contactNumber || newReport.contact,
       timestamp: newReport.timestamp || new Date().toISOString(),
       status: newReport.status || 'pending',
-      location:
-        typeof newReport.location === 'string'
-          ? JSON.parse(newReport.location)
-          : newReport.location || { lat: 0, lng: 0 },
+      location: typeof newReport.location === 'string' ? JSON.parse(newReport.location) : newReport.location || { lat: 0, lng: 0 },
     };
 
-    setReportLogs((prevLogs) => {
+    setReportLogs(prevLogs => {
       const updatedLogs = [...prevLogs, normalizedReport];
       localStorage.setItem('reportLogs', JSON.stringify(updatedLogs.map(r => ({
         ...r,
@@ -237,16 +223,13 @@ export default function DispatcherPage() {
     const incidentsRef = collection(db, 'incidents');
     const q = query(incidentsRef, where('status', 'in', ['pending', 'in-progress']));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, snapshot => {
       const fetchedReports = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
           ...data,
-          location:
-            typeof data.location === 'string'
-              ? JSON.parse(data.location)
-              : data.location,
+          location: typeof data.location === 'string' ? JSON.parse(data.location) : data.location,
           timestamp: data.timestamp?.toDate ? data.timestamp.toDate().toISOString() : (data.timestamp || new Date().toISOString())
         };
       });
@@ -255,43 +238,32 @@ export default function DispatcherPage() {
         ...r,
         location: JSON.stringify(r.location)
       }))));
-    }, (error) => {
+    }, error => {
       console.error('Error fetching incidents:', error);
     });
 
     return () => unsubscribe();
   }, [db]);
 
+  const handleLogoutClick = () => setShowLogoutConfirm(true);
+  const confirmLogout = () => { setShowLogoutConfirm(false); window.location.href = '/'; };
+  const cancelLogout = () => setShowLogoutConfirm(false);
+
   const viewConfig = {
-    'map-view': (
-      <LiveMapView
-        mapRef={mapRef}
-        notifications={notifications}
-        reportLogs={reportLogs}
-      />
-    ),
-    'notifications-view': (
-      <NotificationsView
-        notifications={notifications}
-        dispatchTeam={dispatchTeam}
-        viewOnMap={viewNotificationOnMap}
-        highlightedNotifIds={highlightedNotifIds}
-        onHoverEnter={handleMouseEnter}
-        onHoverLeave={handleMouseLeave}
-        availableTeams={teams}
-        createTeam={handleCreateTeam}
-      />
-    ),
-    'report-logs-view': (
-      <ReportLogsView reportLogs={reportLogs} setReportLogs={setReportLogs} formatDateTime={formatDateTime} />
-    ),
+    'map-view': <LiveMapView mapRef={mapRef} notifications={notifications} reportLogs={reportLogs} />,
+    'notifications-view': <NotificationsView
+      notifications={notifications}
+      dispatchTeam={dispatchTeam}
+      viewOnMap={viewNotificationOnMap}
+      highlightedNotifIds={highlightedNotifIds}
+      onHoverEnter={handleMouseEnter}
+      onHoverLeave={handleMouseLeave}
+      availableTeams={teams}
+      createTeam={handleCreateTeam}
+    />,
+    'report-logs-view': <ReportLogsView reportLogs={reportLogs} setReportLogs={setReportLogs} formatDateTime={formatDateTime} />,
     'team-organizer-view': <TeamOrganizerView responders={currentTeam} />,
-    'incident-history-view': (
-      <IncidentHistoryView
-        reportLogs={reportLogs}
-        formatDateTime={formatDateTime}
-      />
-    )
+    'incident-history-view': <IncidentHistoryView reportLogs={reportLogs} formatDateTime={formatDateTime} />
   };
 
   return (
@@ -301,9 +273,7 @@ export default function DispatcherPage() {
           <div className="menu-toggle" onClick={toggleSidebar}><i className="fas fa-bars" /></div>
           <img src={Logo} alt="Victoria Rescue Logo" className="logo-small" />
           <div className="user-menu">
-            <button id="logout-btn" onClick={() => window.location.href = '/'}>
-              <i className="fas fa-sign-out-alt" /> Logout
-            </button>
+            <button id="logout-btn" onClick={handleLogoutClick}><i className="fas fa-sign-out-alt" /> Logout</button>
           </div>
         </div>
 
@@ -316,12 +286,14 @@ export default function DispatcherPage() {
               { id: 'report-logs-view', icon: 'fa-file-alt', label: 'Report Logs' },
               { id: 'team-organizer-view', icon: 'fa-users', label: 'Team Organizer' },
               { id: 'incident-history-view', icon: 'fa-history', label: 'Incident History' },
-            ].map(({ id, icon, label }) => (
+              { id: 'team-status-view', icon: 'fa-chart-bar', label: 'Team Status', route: '/team-status' }
+            ].map(({ id, icon, label, route }) => (
               <div
                 key={id}
                 className={`menu-item ${activeView === id ? 'active' : ''}`}
                 onClick={() => {
-                  setActiveView(id);
+                  if (route) navigate(route); 
+                  else setActiveView(id);
                   if (id === 'notifications-view') {
                     notifCountRef.current = 0;
                     setNotifCount(0);
@@ -349,24 +321,35 @@ export default function DispatcherPage() {
         </div>
 
         {/* Floating Action Button */}
-        <div
-          className="fab-container"
-          onClick={() => setShowReportModal(true)}
-        >
-          <div className="fab-icon">
-            <i className="fas fa-file-alt"></i>
-          </div>
+        <div className="fab-container" onClick={() => setShowReportModal(true)}>
+          <div className="fab-icon"><i className="fas fa-file-alt"></i></div>
           <span className="fab-label">Create Report</span>
         </div>
 
         {/* Report Modal */}
-        {showReportModal && (
-          <CreateRescueModal
-            isOpen={showReportModal}
-            onClose={() => setShowReportModal(false)}
-            onReportCreated={handleReportCreated}
-          />
+        {showReportModal && <CreateRescueModal isOpen={showReportModal} onClose={() => setShowReportModal(false)} onReportCreated={handleReportCreated} />}
+
+        {/* Logout Confirmation Modal */}
+        {showLogoutConfirm && (
+          <div className="modal-overlay">
+            <div className="modal confirm-modal">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h2>Confirm Logout</h2>
+                  <button className="close-btn" onClick={cancelLogout}>&times;</button>
+                </div>
+                <div className="modal-body">
+                  <p>Are you sure you want to log out?</p>
+                </div>
+                <div className="modal-footer">
+                  <button className="cancel-btn" onClick={cancelLogout}>No</button>
+                  <button className="submit-btn" onClick={confirmLogout}>Yes</button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
+
       </div>
     </div>
   );

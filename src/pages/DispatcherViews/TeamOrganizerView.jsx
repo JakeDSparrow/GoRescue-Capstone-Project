@@ -32,18 +32,28 @@ function getShiftTimes(shiftKey) {
   const { startHour, endHour } = SHIFT_TIMES[shiftKey];
   const start = new Date(now);
   start.setHours(startHour, 0, 0, 0);
-  const end = new Date(start);
-  if (endHour <= startHour) end.setDate(end.getDate() + 1);
+
+  const end = new Date(now);
   end.setHours(endHour, 0, 0, 0);
+
+  if (endHour <= startHour) {
+    end.setDate(end.getDate() + 1);
+  }
+
   return { shiftStart: start.toISOString(), shiftEnd: end.toISOString() };
 }
 
-// Update the function to accept the current time as a parameter
 function isWithinShift(shift, now) {
-  if (!shift) return false;
+  if (!shift || !shift.shiftStart || !shift.shiftEnd) return false;
+
   const start = new Date(shift.shiftStart);
   const end = new Date(shift.shiftEnd);
-  return end > start ? now >= start && now < end : now >= start || now < end;
+
+  if (start.getHours() > end.getHours()) {
+    return now >= start || now < end;
+  }
+
+  return now >= start && now < end;
 }
 
 function hasMembers(shift) {
@@ -60,54 +70,74 @@ export default function TeamOrganizerView() {
   const [selectedTeamKey, setSelectedTeamKey] = useState(null);
   const [selectedShiftKey, setSelectedShiftKey] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  // Store the current time in state, not just a 'tick'
   const [currentTime, setCurrentTime] = useState(new Date());
 
   const db = getFirestore();
 
   useEffect(() => {
-    const loadResponders = async () => {
-      const snapshot = await collection(db, 'mdrrmo-users');
-      const docs = await getDocs(snapshot);
-      const allUsers = docs.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
-      setResponders(allUsers.filter(u => u.role?.toLowerCase() === 'responder' && u.status !== 'inactive'));
+    const loadData = async () => {
+      try {
+        console.log('Fetching data...');
+        const [respondersSnapshot, teamsData] = await Promise.all([
+          getDocs(collection(db, 'mdrrmo-users')),
+          loadTeamsData()
+        ]);
+
+        const allUsers = respondersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+        setResponders(
+          allUsers.filter(u => u.role?.toLowerCase() === 'responder' && u.status !== 'inactive')
+        );
+        setTeams(teamsData);
+        console.log('Data fetched successfully.');
+
+      } catch (error) {
+        console.error('Failed to load data:', error);
+      }
     };
 
-    const loadTeams = async () => {
-      const loadedTeams = { alpha: {}, bravo: {} };
+    const loadTeamsData = async () => {
+      const teamsToLoad = [];
       for (const teamKey of teamsKeys) {
         for (const shiftKey of shifts) {
           const docId = `${teamKey}-${shiftKey}`;
           const docRef = doc(db, 'teams', docId);
-          const docSnap = await getDoc(docRef);
-
-          if (docSnap.exists()) {
-            loadedTeams[teamKey][shiftKey] = {
-              ...defaultShift,
-              ...docSnap.data(),
-              shiftStart: docSnap.data().shiftStart || getShiftTimes(shiftKey).shiftStart,
-              shiftEnd: docSnap.data().shiftEnd || getShiftTimes(shiftKey).shiftEnd,
-              createdAt: docSnap.data().createdAt || new Date().toISOString(),
-            };
-          } else {
-            const times = getShiftTimes(shiftKey);
-            loadedTeams[teamKey][shiftKey] = { ...defaultShift, ...times, createdAt: new Date().toISOString() };
-            await setDoc(docRef, loadedTeams[teamKey][shiftKey]);
-          }
+          teamsToLoad.push({ teamKey, shiftKey, docRef });
         }
       }
-      setTeams(loadedTeams);
+
+      const snapshots = await Promise.all(teamsToLoad.map(item => getDoc(item.docRef)));
+      const loadedTeams = { alpha: {}, bravo: {} };
+
+      for (let i = 0; i < snapshots.length; i++) {
+        const { teamKey, shiftKey, docRef } = teamsToLoad[i];
+        const docSnap = snapshots[i];
+        const times = getShiftTimes(shiftKey);
+
+        if (docSnap.exists()) {
+          loadedTeams[teamKey][shiftKey] = {
+            ...docSnap.data(),
+            shiftStart: times.shiftStart,
+            shiftEnd: times.shiftEnd,
+          };
+        } else {
+          const newShift = {
+            ...defaultShift,
+            ...times,
+            createdAt: new Date().toISOString(),
+          };
+          loadedTeams[teamKey][shiftKey] = newShift;
+          await setDoc(docRef, newShift);
+        }
+      }
+      return loadedTeams;
     };
 
-    loadResponders();
-    loadTeams();
+    loadData();
 
-    // Set up a timer to update the 'currentTime' state
     const interval = setInterval(() => {
       setCurrentTime(new Date());
-    }, 60000); // Update every minute
+    }, 60000);
 
-    // Cleanup function to clear the interval when the component unmounts
     return () => clearInterval(interval);
   }, [db]);
 
@@ -118,21 +148,34 @@ export default function TeamOrganizerView() {
   };
 
   const handleSave = async (teamKey, shiftKey, updatedShift) => {
-    const docId = `${teamKey}-${shiftKey}`;
-    const docRef = doc(db, 'teams', docId);
-    const shiftToSave = {
-      ...updatedShift,
-      createdAt: new Date().toISOString(),
-      shiftStart: updatedShift.shiftStart || teams[teamKey][shiftKey].shiftStart,
-      shiftEnd: updatedShift.shiftEnd || teams[teamKey][shiftKey].shiftEnd,
-    };
-    await setDoc(docRef, shiftToSave);
-    setTeams(prev => ({ ...prev, [teamKey]: { ...prev[teamKey], [shiftKey]: shiftToSave } }));
+    try {
+      const docId = `${teamKey}-${shiftKey}`;
+      const docRef = doc(db, 'teams', docId);
+      const shiftToSave = {
+        ...updatedShift,
+        createdAt: new Date().toISOString(),
+        shiftStart: updatedShift.shiftStart || teams[teamKey][shiftKey].shiftStart,
+        shiftEnd: updatedShift.shiftEnd || teams[teamKey][shiftKey].shiftEnd,
+      };
+      await setDoc(docRef, shiftToSave);
+      setTeams(prev => ({
+        ...prev,
+        [teamKey]: { ...prev[teamKey], [shiftKey]: shiftToSave },
+      }));
+    } catch (error) {
+      console.error('Failed to save shift:', error);
+    }
   };
 
   const clearShift = async (teamKey, shiftKey) => {
     const shift = teams[teamKey][shiftKey];
-    const clearedShift = { ...shift, teamLeader: null, emt1: null, emt2: null, ambulanceDriver: null };
+    const clearedShift = {
+      ...shift,
+      teamLeader: null,
+      emt1: null,
+      emt2: null,
+      ambulanceDriver: null,
+    };
     await handleSave(teamKey, shiftKey, clearedShift);
   };
 
@@ -147,25 +190,57 @@ export default function TeamOrganizerView() {
               const shift = teams[teamKey][shiftKey];
               if (!shift) return null;
 
-              // Pass the state variable to the function
               const isActive = hasMembers(shift) && isWithinShift(shift, currentTime);
-              const startTime = new Date(shift.shiftStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-              const endTime = new Date(shift.shiftEnd).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              const startTime = new Date(shift.shiftStart).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+              const endTime = new Date(shift.shiftEnd).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              });
 
               return (
-                <div key={shiftKey} className={`deck-card ${isActive ? 'active' : ''}`}>
+                <div
+                  key={shiftKey}
+                  className={`deck-card ${isActive ? 'active' : ''}`}
+                >
                   <div className="deck-header">
                     <div className="deck-title-group">
-                      <strong>{shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}</strong>
-                      {isActive && <span style={{ color: '#6c8c44', fontWeight: 600, fontSize: '0.9rem' }}>(Active)</span>}
+                      <strong>
+                        {shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}
+                      </strong>
+                      {isActive && (
+                        <span
+                          style={{
+                            color: '#6c8c44',
+                            fontWeight: 600,
+                            fontSize: '0.9rem',
+                          }}
+                        >
+                          (Active)
+                        </span>
+                      )}
                     </div>
                     <div className="deck-actions">
-                      <button className="edit-button" onClick={() => handleEdit(teamKey, shiftKey)}>✏️ Edit</button>
-                      <button className="clear-button" onClick={() => clearShift(teamKey, shiftKey)}>🗑️ Clear</button>
+                      <button
+                        className="edit-button"
+                        onClick={() => handleEdit(teamKey, shiftKey)}
+                      >
+                        ✏️ Edit
+                      </button>
+                      <button
+                        className="clear-button"
+                        onClick={() => clearShift(teamKey, shiftKey)}
+                      >
+                        🗑️ Clear
+                      </button>
                     </div>
                   </div>
 
-                  <div className="deck-timestamp">{startTime} - {endTime}</div>
+                  <div className="deck-timestamp">
+                    {startTime} - {endTime}
+                  </div>
 
                   <div className="deck-body">
                     {Object.entries(roleLabels).map(([roleKey, label]) => {
@@ -182,7 +257,11 @@ export default function TeamOrganizerView() {
                             <i className={iconMap[roleKey]}></i>
                             <span className="role-label">{label}</span>
                           </div>
-                          <span className={user?.fullName ? 'role-name' : 'unassigned'}>
+                          <span
+                            className={
+                              user?.fullName ? 'role-name' : 'unassigned'
+                            }
+                          >
                             {user?.fullName || 'Not assigned'}
                           </span>
                         </div>
@@ -190,7 +269,14 @@ export default function TeamOrganizerView() {
                     })}
                   </div>
 
-                  {shift.createdAt && <div className="deck-timestamp" style={{ marginTop: 10 }}>Created: {new Date(shift.createdAt).toLocaleString()}</div>}
+                  {shift.createdAt && (
+                    <div
+                      className="deck-timestamp"
+                      style={{ marginTop: 10 }}
+                    >
+                      Created: {new Date(shift.createdAt).toLocaleString()}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -204,8 +290,16 @@ export default function TeamOrganizerView() {
           onClose={() => setIsModalOpen(false)}
           teamDate={selectedTeamKey}
           currentTeam={teams[selectedTeamKey][selectedShiftKey]}
-          responders={responders.filter(r => !Object.values(teams[selectedTeamKey][selectedShiftKey]).some(val => val?.uid === r.uid))}
-          onSave={(teamKey, data) => { handleSave(teamKey, selectedShiftKey, data); setIsModalOpen(false); }}
+          responders={responders.filter(
+            r =>
+              !Object.values(teams[selectedTeamKey][selectedShiftKey]).some(
+                val => val?.uid === r.uid
+              )
+          )}
+          onSave={(teamKey, data) => {
+            handleSave(teamKey, selectedShiftKey, data);
+            setIsModalOpen(false);
+          }}
           teams={teams}
           selectedTeamKey={selectedTeamKey}
           selectedDeckIndex={null}

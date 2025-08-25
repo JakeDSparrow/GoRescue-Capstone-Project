@@ -15,6 +15,9 @@ import "../pages/AdminViews/AdminStyle/AdminPage.css";
 const AdminDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeView, setActiveView] = useState('dashboard-view');
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     const auth = getAuth();
@@ -32,26 +35,64 @@ const AdminDashboard = () => {
 
             if (role !== "admin") {
               alert("Access denied. Only admins can view this page.");
-              window.location.href = "/"; // Redirect to home or login
+              navigate("/");
             }
           } else {
             console.warn("No Firestore document found for this user.");
             alert("No user data found. Please contact admin.");
-            window.location.href = "/";
+            navigate("/");
           }
         } catch (err) {
           console.error("Role check failed:", err);
           alert("Failed to verify admin privileges.");
-          window.location.href = "/";
+          navigate("/");
         }
       };
 
       checkRole();
     } else {
       console.warn("Not signed in.");
-      window.location.href = "/";
+      navigate("/");
     }
-  }, []);
+  }, [navigate]);
+
+  const handleLogoutClick = () => {
+    setShowLogoutConfirm(true);
+  };
+
+  const confirmLogout = async () => {
+    const auth = getAuth();
+    try {
+      await auth.signOut();
+      navigate("/");
+    } catch (error) {
+      console.error("Logout failed", error);
+      alert("Logout failed.");
+    }
+  };
+
+  const cancelLogout = () => {
+    setShowLogoutConfirm(false);
+  };
+
+  const renderView = () => {
+    switch(activeView) {
+      case 'dashboard-view':
+        return <DashboardView />;
+      case 'announcements-view':
+        return <AnnouncementsView />;
+      case 'requests-view':
+        return <RequestsView />;
+      case 'archives-view':
+        return <ArchivesView />;
+      case 'users-view':
+        return <UsersView />;
+      case 'settings-view':
+        return <SettingsView />;
+      default:
+        return <DashboardView />;
+    }
+  };
 
   return (
     <div className="admin-page">
@@ -70,16 +111,7 @@ const AdminDashboard = () => {
             <div className="user-avatar">AD</div>
             <button 
               className="logout-button"
-              onClick={async () => {
-                const auth = getAuth();
-                try {
-                  await auth.signOut();
-                  window.location.href = "/"; 
-                } catch (error) {
-                  console.error("Logout failed", error);
-                  alert("Logout failed.");
-                }
-              }}
+              onClick={handleLogoutClick} // Use the new handler
               aria-label="Logout"
               title="Logout"
             >
@@ -138,14 +170,30 @@ const AdminDashboard = () => {
 
         {/* Main Content Views */}
         <main className="main-content">
-          {activeView === 'dashboard-view' && <DashboardView />}
-          {activeView === 'announcements-view' && <AnnouncementsView />}
-          {activeView === 'requests-view' && <RequestsView />}
-          {activeView === 'archives-view' && <ArchivesView />}
-          {activeView === 'users-view' && <UsersView />}
-          {activeView === 'settings-view' && <SettingsView />}
+          {renderView()}
         </main>
       </div>
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="modal-overlay">
+          <div className="modal confirm-modal">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h2>Confirm Logout</h2>
+                <button className="close-btn" onClick={cancelLogout}>&times;</button>
+              </div>
+              <div className="modal-body">
+                <p>Are you sure you want to log out?</p>
+              </div>
+              <div className="modal-footer">
+                <button className="cancel-btn" onClick={cancelLogout}>No</button>
+                <button className="submit-btn" onClick={confirmLogout}>Yes</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

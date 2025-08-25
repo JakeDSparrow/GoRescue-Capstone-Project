@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { emergencySeverityMap, statusMap } from '../../constants/dispatchConstants';
 import useFormatDate from '../../hooks/useFormatDate';
 import ViewModal from '../../components/ViewModal';
-import CreateRescueModal from '../../components/CreateReportModal';
+import CreateRescueModal, { emergencyTypeMap } from '../../components/CreateReportModal'; // Import emergencyTypeMap
 import '../../components/modalstyles/ViewModalStyles.css';
 
 function formatRespondingTeam(teamKey) {
@@ -33,6 +33,7 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
       const testLog = {
         id: 'TEST-001',
         reportId: 'TEST-001',
+        emergencyType: 'medical', // Add the new field to the test log
         emergencySeverity: 'critical',
         reporter: 'Test Reporter',
         contact: '09999999999',
@@ -66,6 +67,7 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
           <thead>
             <tr>
               <th>Report ID</th>
+              <th>Emergency Type</th> {/* New header */}
               <th>Emergency Severity</th>
               <th>Reported By</th>
               <th>Responding Team</th>
@@ -77,7 +79,7 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
           <tbody>
             {reportLogs.length === 0 ? (
               <tr className="empty-row">
-                <td colSpan="7">
+                <td colSpan="8"> {/* Update colspan to 8 */}
                   <div className="empty-state">
                     <i className="fas fa-inbox" />
                     <p>No reports available</p>
@@ -88,6 +90,17 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
               reportLogs.map((log, index) => (
                 <tr key={`${log.id || log.reportId}-${index}`}>
                   <td>{safeRender(log.reportId || log.id)}</td>
+                  {/* New cell for emergency type */}
+                  <td>
+                    <span
+                      style={{
+                        color: emergencyTypeMap[log.emergencyType]?.color || '#000',
+                        fontWeight: 'bold'
+                      }}
+                    >
+                      {safeRender(emergencyTypeMap[log.emergencyType]?.label || log.emergencyType)}
+                    </span>
+                  </td>
                   <td>
                     <span
                       className="emergency-tag"
@@ -149,7 +162,7 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
       <CreateRescueModal
         isOpen={editModalOpen}
         onClose={closeEditModal}
-        reportToEdit={selectedReport} // prefill logic inside CreateRescueModal
+        reportToEdit={selectedReport}
       />
     </div>
   );

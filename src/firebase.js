@@ -14,7 +14,7 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);  // ✅ Remove the circular reference (was initializeApp(app))
+const app = initializeApp(firebaseConfig);  
 
 // Get Firebase services
 export const auth = getAuth(app);
