@@ -171,11 +171,13 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           members: allResponders.map(r => ({ uid: r.uid, fullName: r.fullName }))
         };
       } else {
-        const [teamKey, shiftKey] = form.respondingTeam.split('-');
-        const teamDetails = teams[teamKey] && teams[teamKey][shiftKey];
+        const [teamKey, shiftKey] = (form.respondingTeam || '').split('-');
+        const teamDetails = (teams?.[teamKey]?.[shiftKey]) || {};
+        const teamNameLeft = (teamKey || '').toUpperCase();
+        const teamNameRight = (shiftKey || '').toUpperCase();
         teamData = {
-          teamName: `${teamKey.toUpperCase()} - ${shiftKey.toUpperCase()}`,
-          members: ROLE_KEYS.map(role => teamDetails[role]).filter(m => m)
+          teamName: `${teamNameLeft} - ${teamNameRight}`.trim().replace(/^\s*-\s*$/, ''),
+          members: ROLE_KEYS.map((role) => teamDetails?.[role]).filter((member) => Boolean(member))
         };
       }
 
