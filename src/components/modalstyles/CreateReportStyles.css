@@ -1,5 +1,6 @@
 /* ===================== */
-/* Create Report Modal Styles - Separate Classes */
+
+/* Create Report Modal Styles - Enhanced */
 /* ===================== */
 
 /* Core Modal Structure */
@@ -18,36 +19,45 @@
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Scrollability */
+  overflow-y: auto;
 }
 
 .create-modal {
   background: #ffffff;
   border-radius: 12px;
   width: 100%;
-  max-width: 500px;
+  max-width: 550px;
   max-height: 90vh;
-  overflow-y: auto;
+  overflow: hidden;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Create Modal Header */
+/* Header */
 .create-modal-header {
   color: #1f2937;
-  padding: 24px 24px 16px 24px;
+  padding: 24px 24px 16px;
   border-bottom: 1px solid #e5e7eb;
-  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
   background: #ffffff;
+  flex-shrink: 0;
+
+  /* Sticky header */
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .create-modal-header h2 {
   font-size: 1.25rem;
   font-weight: 600;
   margin: 0;
-  text-align: left;
   color: #1f2937;
 }
 
@@ -58,7 +68,6 @@
   font-size: 24px;
   line-height: 1;
   cursor: pointer;
-  padding: 0;
   width: 24px;
   height: 24px;
   display: flex;
@@ -73,20 +82,24 @@
   background-color: #f3f4f6;
 }
 
-/* Create Modal Body */
+/* Body */
 .create-modal-body {
   padding: 20px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  overflow-y: auto; /* Scrollable body */
+  flex-grow: 1;
   background: #ffffff;
+  scroll-behavior: smooth;
+}
+
+.form-group {
+  margin-bottom: 16px;
 }
 
 .create-modal-body label {
   display: block;
   font-size: 0.9rem;
   font-weight: 500;
-  color: #6b7280;
+  color: #374151;
   margin-bottom: 6px;
 }
 
@@ -109,8 +122,8 @@
 .create-modal-body select:focus,
 .create-modal-body textarea:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+  border-color: #708c44;
+  box-shadow: 0 0 0 3px rgba(112, 140, 68, 0.1);
 }
 
 .create-modal-body textarea {
@@ -129,122 +142,313 @@
   padding-right: 32px;
 }
 
-/* Create Modal Footer */
+.create-modal-body input:disabled,
+.create-modal-body select:disabled {
+  background-color: #f3f4f6;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* Location Input Container */
+.location-input-container {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.location-input {
+  flex: 1;
+}
+
+.geocode-button {
+  background: #708c44;
+  border: none;
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.geocode-button:hover:not(:disabled) {
+  background: #5d6e3b;
+  transform: translateY(-1px);
+}
+
+.geocode-button:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Compact Coordinates Display */
+.coords-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.coords-success {
+  color: #15803d;
+  font-weight: 500;
+}
+
+.coords-values {
+  font-family: 'Courier New', monospace;
+  color: #6b7280;
+  font-size: 0.8rem;
+}
+
+/* Form Grid */
+.form-divider {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 16px 0 8px;
+}
+
+.create-modal-body h4 {
+  margin: 0 0 8px;
+  color: #374151;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+
+.incident-code-input {
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  color: #708c44;
+  background-color: #f8f9fa;
+  text-transform: uppercase;
+  text-align: center;
+  letter-spacing: 1.5px;
+}
+
+/* Edit Notice */
+.edit-notice {
+  background: #fef3c7;
+  border: 1px solid #fbbf24;
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #92400e;
+  font-size: 0.85rem;
+}
+
+.edit-notice i {
+  color: #f59e0b;
+}
+
+/* Footer */
 .create-modal-footer {
-  padding: 16px 24px 24px 24px;
+  padding: 16px 24px 24px;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+  flex-shrink: 0;
+
+  /* Sticky footer */
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+}
+
+.modal-buttons {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  border-top: 1px solid #e5e7eb;
-  background: #ffffff;
+  margin-bottom: 8px;
 }
 
 .create-cancel-btn,
 .create-submit-btn {
-  padding: 8px 16px;
+  padding: 10px 20px;
   font-size: 0.9rem;
   font-weight: 500;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
-  border: none;
-  min-width: 80px;
+  min-width: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .create-cancel-btn {
-  background: #f3f4f6;
+  background: #ffffff;
   color: #374151;
   border: 1px solid #d1d5db;
 }
 
 .create-cancel-btn:hover:not(:disabled) {
-  background: #e5e7eb;
+  background: #f3f4f6;
 }
 
 .create-submit-btn {
   background: #708c44;
   color: white;
+  border: none;
 }
 
 .create-submit-btn:hover:not(:disabled) {
-  background: #6b794f;
+  background: #5d6e3b;
+  transform: translateY(-1px);
 }
 
 .create-cancel-btn:disabled,
 .create-submit-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none;
 }
 
-/* Severity Option Styling for Create Modal */
-.create-modal-body select option {
-  background-color: white;
-  color: #1f2937;
+/* Status Messages */
+.status-message {
+  text-align: center;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-top: 8px;
 }
 
-.create-modal-body select option[value="Critical"] {
-  color: #ef4444;
+.status-message.success {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
 }
 
-.create-modal-body select option[value="High"] {
-  color: #f59e0b;
+.status-message.error {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
 }
 
-.create-modal-body select option[value="Medium"] {
-  color: #3b82f6;
+.status-message.info {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #dbeafe;
 }
 
-.create-modal-body select option[value="Low"] {
-  color: #10b981;
+.status-message:not(:empty) {
+  animation: fadeIn 0.3s ease;
 }
 
-/* Responsive Design for Create Modal */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsive Design */
 @media (max-width: 640px) {
   .create-modal-overlay {
     padding: 16px;
   }
-  
+
   .create-modal {
-    margin: 16px;
     max-width: calc(100% - 32px);
     border-radius: 8px;
   }
-  
+
   .create-modal-header {
-    padding: 20px 20px 12px 20px;
+    padding: 20px;
   }
-  
+
   .create-modal-header h2 {
     font-size: 1.1rem;
   }
-  
+
   .create-modal-body {
     padding: 16px 20px;
-    gap: 14px;
   }
-  
-  .create-modal-body input,
-  .create-modal-body select,
-  .create-modal-body textarea {
-    padding: 10px 12px;
-    font-size: 0.9rem;
+
+  .form-group {
+    margin-bottom: 14px;
   }
-  
+
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
   .create-modal-footer {
-    padding: 12px 20px 20px 20px;
-    flex-direction: column;
-    gap: 8px;
+    padding: 12px 20px 20px;
   }
-  
+
+  .modal-buttons {
+    flex-direction: column-reverse;
+    gap: 10px;
+  }
+
   .create-cancel-btn,
   .create-submit-btn {
     width: 100%;
-    padding: 10px 16px;
+    min-width: auto;
+  }
+
+  .location-input-container {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .geocode-button {
+    width: 100%;
+    height: 40px;
+  }
+
+  .coords-display {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
   }
 }
 
-/* Disabled Select Option Styling for Create Modal */
-.create-modal-body select option:disabled {
-  color: #9ca3af;
-  background-color: #f3f4f6;
+/* Loading States */
+.fas.fa-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Form Grid Enhancements */
+.form-grid .form-group {
+  margin-bottom: 0;
+}
+
+/* Improved Focus States */
+.create-modal-body input:focus,
+.create-modal-body select:focus,
+.create-modal-body textarea:focus {
+  border-color: #708c44;
+  box-shadow: 0 0 0 3px rgba(112, 140, 68, 0.1);
+}
+
+/* Better Button States */
+.geocode-button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.create-submit-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
 }

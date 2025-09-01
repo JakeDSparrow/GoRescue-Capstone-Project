@@ -543,6 +543,42 @@
   min-height: 500px;
 }
 
+/* === Marker Ping Animation === */
+
+/* Base styling for the barangay marker icon */
+.leaflet-div-icon.barangay-marker-icon .barangay-marker {
+  width: 15px;
+  height: 15px;
+  background-color: #3498db; /* Blue color for barangays */
+  border-radius: 50%;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+  transition: transform 0.2s;
+}
+
+/* The Ping animation keyframes */
+@keyframes ping {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.7);
+  }
+  70% {
+    transform: scale(2.0); /* Increased the scale for a more noticeable ping */
+    opacity: 0.7;
+    box-shadow: 0 0 0 10px rgba(52, 152, 219, 0);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0);
+  }
+}
+
+/* Apply the ping class to the marker icon */
+.leaflet-div-icon.barangay-marker-icon.pinging .barangay-marker {
+  animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
 /* === Notification Icon === */
 .dispatcher-page .notification-icon {
   position: relative;
@@ -873,4 +909,109 @@
 .confirm-modal .cancel-btn:hover {
   transform: translateY(-2px);
   background-color: #c0392b;
+}
+
+/* === Team Missions Dashboard === */
+.dispatcher-page .team-missions-dashboard {
+  min-height: 100vh;
+  background-color: var(--secondary);
+  padding: 2rem;
+  overflow-y: auto;
+  font-family: "Segoe UI", sans-serif;
+}
+
+.dispatcher-page .team-missions-dashboard h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  color: #2c3e50;
+}
+
+.dispatcher-page .team-missions-dashboard h2 i {
+  margin-right: 0.5rem;
+  color: #3b82f6;
+}
+
+.dispatcher-page .team-dashboard-loading,
+.dispatcher-page .team-dashboard-empty {
+  background-color: var(--light);
+  padding: 3rem;
+  border-radius: 0.5rem;
+  text-align: center;
+  box-shadow: var(--shadow);
+  color: #64748b;
+}
+
+.dispatcher-page .team-dashboard-empty i {
+  font-size: 3rem;
+  color: #d1d5db;
+  margin-bottom: 1rem;
+}
+
+.dispatcher-page .team-cards-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.dispatcher-page .team-card {
+  background-color: var(--light);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dispatcher-page .team-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dispatcher-page .team-card-header h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.dispatcher-page .team-card-members,
+.dispatcher-page .team-card-missions {
+  padding: 0.75rem;
+  background-color: #f8fafc;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.dispatcher-page .team-card-members ul,
+.dispatcher-page .team-card-missions ul {
+  padding-left: 1rem;
+  margin-top: 0.25rem;
+  list-style: disc;
+}
+
+.dispatcher-page .team-card-members li,
+.dispatcher-page .team-card-missions li {
+  margin-bottom: 0.25rem;
+}
+
+.dispatcher-page .team-card-members strong,
+.dispatcher-page .team-card-missions strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.dispatcher-page .team-card-members li {
+  color: #374151;
+}
+
+.dispatcher-page .team-card-missions li {
+  color: #2c3e50;
+}
+
+.dispatcher-page .team-card-missions p {
+  font-size: 0.875rem;
+  color: #64748b;
 }

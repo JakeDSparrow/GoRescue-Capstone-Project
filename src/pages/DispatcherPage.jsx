@@ -340,6 +340,12 @@ export default function DispatcherPage() {
   };
 
   const handleReportCreated = (newReport) => {
+    // Check if newReport is a valid object before proceeding
+    if (!newReport || typeof newReport !== 'object') {
+      console.error('handleReportCreated received an invalid report object:', newReport);
+      return;
+    }
+
     const normalizedReport = {
       ...newReport,
       reportId: newReport.reportId || newReport.id,
@@ -353,25 +359,25 @@ export default function DispatcherPage() {
 
     setReportLogs(prevLogs => {
       const updatedLogs = [...prevLogs, normalizedReport];
-      // Save to both localStorage and sessionStorage
+      // Note: As per best practices, consider using a persistent database
+      // like Firestore instead of localStorage/sessionStorage for real-world applications.
       const logsToSave = updatedLogs.map(r => ({
         ...r,
         location: JSON.stringify(r.location)
       }));
       localStorage.setItem('reportLogs', JSON.stringify(logsToSave));
-      
-      // Also update sessionStorage for cross-tab sync
+
       const currentData = JSON.parse(sessionStorage.getItem('dispatcherData') || '{}');
       sessionStorage.setItem('dispatcherData', JSON.stringify({
         ...currentData,
         reportLogs: logsToSave,
         timestamp: Date.now()
       }));
-      
+
       return updatedLogs;
     });
   };
-
+  
   // Firestore realtime fetch report logs
   useEffect(() => {
     const incidentsRef = collection(db, 'incidents');

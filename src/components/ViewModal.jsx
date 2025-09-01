@@ -5,27 +5,19 @@ import { emergencyTypeMap } from './CreateReportModal';
 
 function formatRespondingTeam(teamKey) {
   if (!teamKey) return 'N/A';
-
-  if (teamKey.toLowerCase().startsWith('team ')) {
-    return teamKey;
-  }
-
+  if (teamKey.toLowerCase().startsWith('team ')) return teamKey;
   const team = teamKey.split('-')[0];
   if (!team) return teamKey;
-
   return `Team ${team.charAt(0).toUpperCase() + team.slice(1)}`;
 }
 
 function getSeverityClass(severity) {
   if (!severity) return '';
   const severityLower = severity.toLowerCase();
-
-  // Match all 4 CSS classes you have defined
   if (severityLower.includes('critical')) return 'severity-critical';
   if (severityLower.includes('high')) return 'severity-high';
   if (severityLower.includes('moderate') || severityLower.includes('medium')) return 'severity-moderate';
   if (severityLower.includes('low')) return 'severity-low';
-
   return '';
 }
 
@@ -41,15 +33,10 @@ function getStatusClass(status) {
 export default function ViewModal({ isOpen, onClose, report }) {
   if (!isOpen || !report) return null;
 
-  // Add this log to debug the report object
-  console.log('ViewModal report data:', report);
-
   const safeRender = (field) => {
     if (field === null || field === undefined) return 'N/A';
     if (typeof field === 'object') {
-      if ('lat' in field && 'lng' in field) {
-        return `Lat: ${field.lat}, Lng: ${field.lng}`;
-      }
+      if ('lat' in field && 'lng' in field) return `Lat: ${field.lat}, Lng: ${field.lng}`;
       return JSON.stringify(field);
     }
     return String(field);
@@ -70,44 +57,21 @@ export default function ViewModal({ isOpen, onClose, report }) {
 
   const renderSeverity = (severity) => {
     if (!severity) return 'N/A';
-
     const severityLower = severity.toLowerCase();
-    let matchedConfig = null;
-    let matchedKey = '';
-
     for (const [key, config] of Object.entries(emergencySeverityMap)) {
       if (severityLower.includes(key)) {
-        matchedConfig = config;
-        matchedKey = key;
-        break;
+        return (
+          <span className={`severity-${key}`}>
+            <i className={`fa ${config.icon}`} style={{ marginRight: '4px' }}></i>
+            {config.label}
+          </span>
+        );
       }
     }
-
-    if (matchedConfig) {
-      return (
-        <span className={`severity-${matchedKey}`}>
-          <i className={`fa ${matchedConfig.icon}`} style={{ marginRight: '4px' }}></i>
-          {matchedConfig.label}
-        </span>
-      );
-    }
-
-    // Fallback to basic styling
-    const severityClass = getSeverityClass(severity);
-    if (severityClass) {
-      return <span className={severityClass}>{safeRender(severity)}</span>;
-    }
-
-    return safeRender(severity);
+    return <span className={getSeverityClass(severity)}>{safeRender(severity)}</span>;
   };
 
-  const renderStatus = (status) => {
-    const statusClass = getStatusClass(status);
-    if (statusClass) {
-      return <span className={statusClass}>{safeRender(status)}</span>;
-    }
-    return safeRender(status);
-  };
+  const renderStatus = (status) => <span className={getStatusClass(status)}>{safeRender(status)}</span>;
 
   return (
     <div className="view-modal-overlay" onClick={onClose}>
@@ -119,6 +83,16 @@ export default function ViewModal({ isOpen, onClose, report }) {
 
         <div className="view-modal-body">
           <div className="view-detail-row">
+            <div className="view-detail-label">Report ID:</div>
+            <div className="view-detail-value">{safeRender(report.reportId)}</div>
+          </div>
+
+          <div className="view-detail-row">
+            <div className="view-detail-label">Incident Code:</div>
+            <div className="view-detail-value">{safeRender(report.incidentCode)}</div>
+          </div>
+
+          <div className="view-detail-row">
             <div className="view-detail-label">Emergency Type:</div>
             <div className="view-detail-value">{renderEmergencyType(report.emergencyType)}</div>
           </div>
@@ -129,28 +103,46 @@ export default function ViewModal({ isOpen, onClose, report }) {
           </div>
 
           <div className="view-detail-row">
-            <div className="view-detail-label">Reported By:</div>
+            <div className="view-detail-label">Reporter:</div>
             <div className="view-detail-value">{safeRender(report.reporter)}</div>
           </div>
 
           <div className="view-detail-row">
             <div className="view-detail-label">Contact:</div>
-            <div className="view-detail-value">
-              <span className="contact-info">{safeRender(report.contact)}</span>
-            </div>
+            <div className="view-detail-value">{safeRender(report.contact)}</div>
           </div>
 
           <div className="view-detail-row">
             <div className="view-detail-label">Location:</div>
-            <div className="view-detail-value">
-              <span className="location-coords">{safeRender(report.locationText)}</span>
-            </div>
+            <div className="view-detail-value">{safeRender(report.locationText)}</div>
           </div>
+
+          {report.location && (
+            <div className="view-detail-row">
+              <div className="view-detail-label">Coordinates:</div>
+              <div className="view-detail-value">{`Lat: ${report.location.lat}, Lng: ${report.location.lng}`}</div>
+            </div>
+          )}
 
           <div className="view-detail-row">
             <div className="view-detail-label">Responding Team:</div>
             <div className="view-detail-value">{formatRespondingTeam(report.respondingTeam)}</div>
           </div>
+
+          {report.teamData?.members?.length > 0 && (
+            <div className="view-detail-row">
+              <div className="view-detail-label">Team Members:</div>
+              <div className="view-detail-value">
+                <ul>
+                  {report.teamData.members.map(member => (
+                    <li key={member.uid}>
+                      {member.fullName} ({member.role || 'Responder'}) - {member.phone || member.contact || 'N/A'}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
 
           <div className="view-detail-row">
             <div className="view-detail-label">Status:</div>
@@ -162,6 +154,11 @@ export default function ViewModal({ isOpen, onClose, report }) {
             <div className="view-detail-value">
               {report.timestamp ? new Date(report.timestamp).toLocaleString() : 'N/A'}
             </div>
+          </div>
+
+          <div className="view-detail-row">
+            <div className="view-detail-label">Notes:</div>
+            <div className="view-detail-value">{safeRender(report.notes)}</div>
           </div>
         </div>
       </div>

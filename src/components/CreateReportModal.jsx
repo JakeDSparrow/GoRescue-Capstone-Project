@@ -11,69 +11,256 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import './modalstyles/CreateReportStyles.css';
-import { emergencySeverityMap } from '../constants/dispatchConstants';
+import {
+  emergencySeverityMap,
+  emergencyTypeMap,
+  parseEmergencyCode,
+  EMERGENCY_CATEGORIES,
+  EMERGENCY_SUBCATEGORIES,
+  CASUALTY_CODES,
+  SEVERITY_CODES,
+  convertLegacyToNewType,
+  convertLegacySeverity,
+  victoriaBarangayData,
+  victoriaLandmarks
+} from '../constants/dispatchConstants';
 
-const GEOAPIFY_API_KEY = '499958bc884b4b8cae36c651db0a3d7d';
+export { emergencySeverityMap, emergencyTypeMap };
+
 const ROLE_KEYS = ['teamLeader', 'emt1', 'emt2', 'ambulanceDriver'];
 
-export const emergencyTypeMap = {
-  medical: {
-    icon: 'fa-plus-square',
-    color: '#e74c3c',
-    label: 'Medical Emergency',
-  },
-  accident: {
-    icon: 'fa-car-crash',
-    color: '#f39c12',
-    label: 'Road Accident',
-  },
-  natural: {
-    icon: 'fa-water',
-    color: '#2980b9',
-    label: 'Natural Disaster',
-  },
+// Enhanced landmark data with coordinates
+const enhancedLandmarks = [
+  { name: 'canarem lake bird sanctuary', latitude: 15.5970, longitude: 120.7131, barangay: 'Canarem' },
+  { name: 'canarem lake', latitude: 15.5970, longitude: 120.7131, barangay: 'Canarem' },
+  { name: 'bird sanctuary', latitude: 15.5970, longitude: 120.7131, barangay: 'Canarem' },
+  { name: 'immaculate conception parish church', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'parish church', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'church', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'victoria municipal park', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'municipal park', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'park', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'victoria town hall', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'town hall', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'municipal hall', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'city hall', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'victoria industrial park', latitude: 15.5443, longitude: 120.6409, barangay: 'Baculong' },
+  { name: 'industrial park', latitude: 15.5443, longitude: 120.6409, barangay: 'Baculong' },
+  { name: 'public market', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'market', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'fire station', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'police station', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'hospital', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'health center', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'cemetery', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
+  { name: 'school', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' }
+];
+
+const findSingleLocationCoords = async (locationText, barangayData, landmarkData) => {
+  const normalizedText = locationText.toLowerCase().trim();
+  
+  // Check enhanced landmarks first
+  for (const landmark of enhancedLandmarks) {
+    if (normalizedText.includes(landmark.name)) {
+      return {
+        lat: landmark.latitude,
+        lng: landmark.longitude,
+        precision: 'exact-landmark',
+        matchedLocation: `${landmark.name.charAt(0).toUpperCase() + landmark.name.slice(1)} (${landmark.barangay})`
+      };
+    }
+  }
+  
+  // Check barangays
+  if (barangayData && Array.isArray(barangayData)) {
+    for (const barangay of barangayData) {
+      const barangayName = barangay.barangay.toLowerCase();
+      
+      if (normalizedText.includes(barangayName) || 
+          normalizedText.includes(`brgy ${barangayName}`) ||
+          normalizedText.includes(`barangay ${barangayName}`)) {
+        return { 
+          lat: barangay.latitude, 
+          lng: barangay.longitude,
+          precision: 'barangay',
+          matchedLocation: `Barangay ${barangay.barangay}`
+        };
+      }
+    }
+  }
+
+  return null;
 };
-const EMERGENCY_TYPES = Object.entries(emergencyTypeMap);
+
+const geocodeLocation = async (locationText) => {
+  if (!locationText || typeof locationText !== 'string') {
+    return null;
+  }
+
+  const normalizedText = locationText.toLowerCase().trim();
+  const barangayData = victoriaBarangayData || [];
+  const landmarkData = victoriaLandmarks || [];
+
+  try {
+    // Handle "between X and Y" queries
+    const betweenMatch = normalizedText.match(/(?:between|in between)\s+(.+?)\s+and\s+(.+)/);
+    if (betweenMatch) {
+      const loc1 = betweenMatch[1].trim();
+      const loc2 = betweenMatch[2].trim();
+      
+      const coords1 = await findSingleLocationCoords(loc1, barangayData, landmarkData);
+      const coords2 = await findSingleLocationCoords(loc2, barangayData, landmarkData);
+      
+      if (coords1 && coords2) {
+        const midpointLat = (coords1.lat + coords2.lat) / 2;
+        const midpointLng = (coords1.lng + coords2.lng) / 2;
+        return {
+          lat: midpointLat,
+          lng: midpointLng,
+          precision: 'between',
+          matchedLocation: `Between ${coords1.matchedLocation} and ${coords2.matchedLocation}`
+        };
+      }
+      return coords1 || coords2;
+    }
+
+    // Handle "near X" queries with offset
+    const nearMatch = normalizedText.match(/^near\s+(.+)/);
+    if (nearMatch) {
+      const targetLocation = nearMatch[1].trim();
+      const baseCoords = await findSingleLocationCoords(targetLocation, barangayData, landmarkData);
+      if (baseCoords) {
+        const offsetLat = (Math.random() - 0.5) * 0.001;
+        const offsetLng = (Math.random() - 0.5) * 0.001;
+        return {
+          lat: baseCoords.lat + offsetLat,
+          lng: baseCoords.lng + offsetLng,
+          precision: 'near',
+          matchedLocation: `Near ${baseCoords.matchedLocation}`
+        };
+      }
+      return null;
+    }
+
+    // Handle "at X" or "in X" queries - exact location
+    const atInMatch = normalizedText.match(/^(?:at|in)\s+(.+)/);
+    if (atInMatch) {
+      const targetLocation = atInMatch[1].trim();
+      return await findSingleLocationCoords(targetLocation, barangayData, landmarkData);
+    }
+
+    // Handle direct location queries
+    return await findSingleLocationCoords(normalizedText, barangayData, landmarkData);
+    
+  } catch (error) {
+    console.error('Error in geocodeLocation:', error);
+    return null;
+  }
+};
+
+const parseLocation = (locationObj) => {
+  try {
+    if (!locationObj) return null;
+    
+    if (typeof locationObj === 'string') {
+      const parsed = JSON.parse(locationObj);
+      return (parsed && typeof parsed.lat === 'number' && typeof parsed.lng === 'number') ? parsed : null;
+    }
+    
+    if (typeof locationObj === 'object') {
+      const lat = Number(locationObj.lat || locationObj.latitude);
+      const lng = Number(locationObj.lng || locationObj.lon || locationObj.longitude);
+      return (Number.isFinite(lat) && Number.isFinite(lng)) ? { lat, lng } : null;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error parsing location:', error);
+    return null;
+  }
+};
+
+const formatReportId = (count) => {
+  const date = new Date();
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  const countStr = count.toString().padStart(4, '0');
+  return `${month}${day}-${countStr}`;
+};
+
+const initialFormState = {
+  reporterName: '',
+  contact: '',
+  location: '',
+  notes: '',
+  respondingTeam: '',
+  incidentCode: '',
+  emergencyCategory: '',
+  emergencySubtype: '',
+  casualtyCode: '',
+  severityCode: '',
+};
 
 const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) => {
   const db = getFirestore();
   const [teams, setTeams] = useState({});
   const [allResponders, setAllResponders] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({
-    reporterName: '',
-    contact: '',
-    location: '',
-    notes: '',
-    respondingTeam: '',
-    severity: '',
-    emergencyType: '',
-  });
+  const [form, setForm] = useState(initialFormState);
+  const [calculatedCoords, setCalculatedCoords] = useState(null);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [isCodeManuallyTyped, setIsCodeManuallyTyped] = useState(false);
 
+  // Populate form if editing
   useEffect(() => {
+    if (!isOpen) return;
+
     if (reportToEdit) {
-      setForm({
-        reporterName: reportToEdit.reporter || '',
-        contact: reportToEdit.contact || '',
-        location: reportToEdit.locationText || '',
-        notes: reportToEdit.notes || '',
-        respondingTeam: reportToEdit.respondingTeam || '',
-        severity: reportToEdit.emergencySeverity || '',
-        emergencyType: reportToEdit.emergencyType || '',
-      });
+      const parsed = parseEmergencyCode(reportToEdit.incidentCode);
+      if (parsed) {
+        setForm({
+          reporterName: reportToEdit.reporter || '',
+          contact: reportToEdit.contact || '',
+          location: reportToEdit.locationText || '',
+          notes: reportToEdit.notes || '',
+          respondingTeam: reportToEdit.respondingTeam || '',
+          incidentCode: reportToEdit.incidentCode,
+          emergencyCategory: parsed.category,
+          emergencySubtype: parsed.subtype,
+          casualtyCode: parsed.casualty,
+          severityCode: parsed.severity,
+        });
+      } else {
+        const newType = convertLegacyToNewType(reportToEdit.emergencyType);
+        const newSeverity = convertLegacySeverity(reportToEdit.emergencySeverity);
+        setForm({
+          reporterName: reportToEdit.reporter || '',
+          contact: reportToEdit.contact || '',
+          location: reportToEdit.locationText || '',
+          notes: reportToEdit.notes || '',
+          respondingTeam: reportToEdit.respondingTeam || '',
+          incidentCode: '',
+          emergencyCategory: newType.category,
+          emergencySubtype: newType.subtype,
+          casualtyCode: '00',
+          severityCode: newSeverity,
+        });
+      }
+      if (reportToEdit.location) {
+        const coords = parseLocation(reportToEdit.location);
+        if (coords) {
+          setCalculatedCoords(coords);
+        }
+      }
     } else {
-      setForm({
-        reporterName: '',
-        contact: '',
-        location: '',
-        notes: '',
-        respondingTeam: '',
-        severity: '',
-        emergencyType: '',
-      });
+      setForm(initialFormState);
+      setCalculatedCoords(null);
     }
+    setStatusMessage('');
+    setIsCodeManuallyTyped(false);
   }, [reportToEdit, isOpen]);
 
+  // Fetch teams and responders
   useEffect(() => {
     const fetchTeamsAndResponders = async () => {
       try {
@@ -97,99 +284,117 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           teamsData[k].nightShift = teamsData[k].nightShift || {};
         });
         setTeams(teamsData);
+
         const respondersQuery = query(
           collection(db, 'mdrrmo-users'),
           where('role', '==', 'responder')
         );
         const respondersSnapshot = await getDocs(respondersQuery);
-        const respondersList = respondersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
-        setAllResponders(respondersList);
+        setAllResponders(respondersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() })));
       } catch (err) {
         console.error('Failed to fetch teams or responders:', err);
+        setStatusMessage('Error loading teams data. Please refresh and try again.');
       }
     };
-    fetchTeamsAndResponders();
-  }, [db]);
+    
+    if (isOpen) {
+      fetchTeamsAndResponders();
+    }
+  }, [db, isOpen]);
 
-  const determineEmergencyType = (notes) => {
-    const notesLower = notes.toLowerCase();
-    const keywords = {
-      medical: ['assistance', 'ambulance', 'injured', 'sick', 'unconscious', 'breathing', 'seizure'],
-      accident: ['accident', 'crash', 'collision', 'vehicle', 'car', 'motorcycle'],
-      natural: ['tree', 'flood', 'landslide', 'earthquake', 'typhoon', 'storm', 'disaster'],
-    };
-    for (const type in keywords) {
-      if (keywords[type].some(keyword => notesLower.includes(keyword))) {
-        return type;
+  // Auto-build incident code from dropdowns
+  useEffect(() => {
+    if (isCodeManuallyTyped) return;
+    const { emergencyCategory, emergencySubtype, casualtyCode, severityCode } = form;
+    if (emergencyCategory && emergencySubtype && casualtyCode && severityCode) {
+      const newCode = `${emergencyCategory}${emergencySubtype}-${casualtyCode}-${severityCode}`;
+      if (newCode !== form.incidentCode) {
+        setForm(prev => ({ ...prev, incidentCode: newCode }));
       }
     }
-    return '';
-  };
+  }, [form.emergencyCategory, form.emergencySubtype, form.casualtyCode, form.severityCode, isCodeManuallyTyped]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setForm(prevForm => {
-      let updatedForm = { ...prevForm, [name]: value };
-      if (name === 'notes') {
-        const detectedType = determineEmergencyType(value);
-        updatedForm = { ...updatedForm, emergencyType: detectedType };
-      }
-      return updatedForm;
-    });
-  };
 
-  const geocodeLocation = async (locationText) => {
-    if (!locationText) return null;
-    const extractPlace = (text) => {
-      const keywords = ['near', 'at'];
-      for (const kw of keywords) {
-        if (text.toLowerCase().includes(kw)) {
-          const parts = text.toLowerCase().split(kw);
-          return parts[1].trim();
-        }
+    if (name === 'incidentCode') {
+      setIsCodeManuallyTyped(value.trim() !== '');
+      const parsed = parseEmergencyCode(value.trim().toUpperCase());
+      if (parsed) {
+        setForm(prev => ({
+          ...prev,
+          incidentCode: value.trim().toUpperCase(),
+          emergencyCategory: parsed.category,
+          emergencySubtype: parsed.subtype,
+          casualtyCode: parsed.casualty,
+          severityCode: parsed.severity,
+        }));
+      } else {
+        setForm(prev => ({ ...prev, incidentCode: value }));
       }
-      return text;
-    };
-    const selectBestFeature = (features) => {
-      if (!features || features.length === 0) return null;
-      return features.sort((a, b) => (b.properties.rank?.importance ?? 0) - (a.properties.rank?.importance ?? 0))[0];
-    };
-    try {
-      const place = extractPlace(locationText);
-      let response = await fetch(
-        `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(locationText)}&apiKey=${GEOAPIFY_API_KEY}`
-      );
-      let data = await response.json();
-      let bestFeature = selectBestFeature(data.features);
-      if (bestFeature) return { lat: bestFeature.properties.lat, lng: bestFeature.properties.lon };
-      if (place !== locationText) {
-        response = await fetch(
-          `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(place)}&apiKey=${GEOAPIFY_API_KEY}`
-        );
-        data = await response.json();
-        bestFeature = selectBestFeature(data.features);
-        if (bestFeature) return { lat: bestFeature.properties.lat, lng: bestFeature.properties.lon };
-      }
-      return null;
-    } catch (error) {
-      console.error('Geocoding error:', error);
-      return null;
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (!form.severity || !form.emergencyType || !form.reporterName || !form.contact || !form.location || !form.respondingTeam) {
-      alert('Please fill in all required fields.');
       return;
     }
+
+    if (['emergencyCategory','emergencySubtype','casualtyCode','severityCode'].includes(name)) {
+      setIsCodeManuallyTyped(false);
+    }
+
+    setForm(prev => ({ ...prev, [name]: value }));
+
+    if (name === 'emergencyCategory') {
+      setForm(prev => ({ ...prev, emergencySubtype: '' }));
+    }
+
+    // Clear coordinates when location changes
+    if (name === 'location') {
+      setCalculatedCoords(null);
+    }
+  };
+
+  // Manual geocoding button - ONLY manual now
+  const handleManualGeocode = async () => {
+    if (!form.location.trim()) {
+      setStatusMessage('⚠️ Please enter a location first');
+      return;
+    }
+    
     setLoading(true);
+    
     try {
-      const coords = await geocodeLocation(form.location);
-      if (!coords) {
-        alert('Failed to find coordinates for the location.');
-        setLoading(false);
-        return;
+      const coords = await geocodeLocation(form.location.trim());
+      if (coords) {
+        setCalculatedCoords(coords);
+        setStatusMessage(`✅ Location found: ${coords.matchedLocation}`);
+      } else {
+        setCalculatedCoords(null);
+        setStatusMessage('❌ Location not recognized. Try: "at public market", "near canarem lake", "in bulo"');
       }
+    } catch (error) {
+      console.error('Manual geocoding error:', error);
+      setCalculatedCoords(null);
+      setStatusMessage('❌ Error calculating coordinates.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!form.reporterName || !form.contact || !form.location || !form.respondingTeam || !form.incidentCode) {
+      setStatusMessage('❌ Please fill in all required fields and ensure a valid Incident Code is generated.');
+      return;
+    }
+
+    if (!calculatedCoords) {
+      setStatusMessage('❌ Please calculate coordinates for the location first using the map button.');
+      return;
+    }
+
+    setLoading(true);
+    setStatusMessage('💾 Saving report...');
+
+    try {
       let teamData;
       if (form.respondingTeam === 'all-responders') {
         teamData = {
@@ -199,181 +404,326 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
       } else {
         const [teamKey, shiftKey] = form.respondingTeam.split('-');
         const teamDetails = teams[teamKey] && teams[teamKey][shiftKey];
-        
-        // Add validation for teamDetails
         if (!teamDetails) {
-          alert(`Selected team (${teamKey} - ${shiftKey}) is not available or has no members assigned.`);
+          setStatusMessage(`❌ Selected team (${teamKey} - ${shiftKey}) is not available.`);
           setLoading(false);
           return;
         }
-        
         teamData = {
-          teamName: `${teamKey ? teamKey.toUpperCase() : ''} - ${shiftKey ? shiftKey.toUpperCase() : ''}`,
-          members: ROLE_KEYS
-            .map(role => teamDetails[role])
-            .filter(member => member && (member.uid || member.fullName || member.name))
+          teamName: `${teamKey?.toUpperCase()} - ${shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}`,
+          members: ROLE_KEYS.map(role => teamDetails?.[role]).filter(m => m),
         };
-        
-        // Check if team has any valid members
-        if (teamData.members.length === 0) {
-          alert(`Selected team (${teamKey} - ${shiftKey}) has no valid members assigned.`);
-          setLoading(false);
-          return;
-        }
       }
-      
+
+      const categoryMap = { 'ME': 'medical', 'AC': 'accident', 'NA': 'natural' };
+      const severityMap = { '@C': 'critical', '@H': 'high', '@M': 'moderate', '@L': 'low' };
+
       const incidentData = {
-        emergencySeverity: form.severity.toLowerCase(),
-        emergencyType: form.emergencyType,
+        incidentCode: form.incidentCode,
+        emergencyType: categoryMap[form.emergencyCategory] || 'medical',
+        emergencySeverity: severityMap[form.severityCode] || 'low',
         reporter: form.reporterName,
         contact: form.contact,
-        location: JSON.stringify(coords),
+        location: { 
+          lat: calculatedCoords.lat, 
+          lng: calculatedCoords.lng 
+        },
         locationText: form.location,
+        locationPrecision: calculatedCoords.precision || 'unknown',
+        matchedLocation: calculatedCoords.matchedLocation || form.location,
         notes: form.notes || '',
-        status: 'pending',
+        status: reportToEdit?.status || 'pending',
         timestamp: serverTimestamp(),
         respondingTeam: form.respondingTeam,
-        teamData: teamData,
+        teamData,
       };
-      
+
       let savedReport;
-      if (reportToEdit) {
+      if (reportToEdit?.id) {
         const docRef = doc(db, 'incidents', reportToEdit.id);
-        await updateDoc(docRef, { ...incidentData });
-        savedReport = {
-          ...reportToEdit,
-          ...incidentData,
-          location: coords
-        };
+        await updateDoc(docRef, incidentData);
+        savedReport = { ...incidentData, id: reportToEdit.id, reportId: reportToEdit.reportId };
+        setStatusMessage('✅ Report updated successfully!');
       } else {
-        const now = new Date();
-        const prefix = String(now.getMonth() + 1).padStart(2, '0') + String(now.getFullYear()).slice(-2);
         const incidentsRef = collection(db, 'incidents');
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-        const q = query(incidentsRef, where('timestamp', '>=', startOfMonth), where('timestamp', '<', startOfNextMonth));
-        const snapshot = await getDocs(q);
-        const reportId = `${prefix}-${String(snapshot.size + 1).padStart(4, '0')}`;
-        const docRef = await addDoc(incidentsRef, {
-          reportId,
-          ...incidentData,
-        });
-        savedReport = {
-          id: docRef.id,
-          reportId,
-          ...incidentData,
-          location: coords,
-          timestamp: new Date().toISOString(),
-        };
+        const countSnapshot = await getDocs(incidentsRef);
+        const reportId = formatReportId(countSnapshot.size + 1);
+        const docRef = await addDoc(incidentsRef, { ...incidentData, reportId });
+        savedReport = { ...incidentData, id: docRef.id, reportId };
+        setStatusMessage('✅ Report created successfully!');
       }
-      
-      if (typeof onReportCreated === 'function') {
-        onReportCreated(savedReport);
-      } else {
-        console.warn('onReportCreated is not a function or not provided');
-      }
-      if (typeof onClose === 'function') {
+
+      onReportCreated?.(savedReport);
+      setTimeout(() => {
         onClose();
-      }
-      setForm({
-        reporterName: '',
-        contact: '',
-        location: '',
-        notes: '',
-        respondingTeam: '',
-        severity: '',
-        emergencyType: '',
-      });
-      alert(reportToEdit ? 'Report updated successfully!' : 'Report created successfully!');
-    } catch (error) {
-      console.error('Error adding/editing report:', error);
-      console.error('Error code:', error.code);
-      console.error('Error message:', error.message);
-      if (error.code === 'permission-denied') {
-        alert('Permission denied. You may not have the required permissions to create reports.');
-      } else if (error.code === 'unauthenticated') {
-        alert('Authentication required. Please log in and try again.');
-      } else {
-        alert(`Failed to save report: ${error.message || 'Unknown error'}`);
-      }
+        setStatusMessage('');
+      }, 2000);
+      
+    } catch (err) {
+      console.error('Error saving report:', err);
+      setStatusMessage('❌ Error saving report. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   if (!isOpen) return null;
+  const isEditing = !!reportToEdit;
+  const availableSubtypes = EMERGENCY_SUBCATEGORIES[form.emergencyCategory] || {};
 
   return (
-    <div className="create-modal-overlay">
+    <div className="create-modal-overlay" role="dialog" aria-modal="true">
       <div className="create-modal">
         <div className="create-modal-header">
-          <h2>{reportToEdit ? 'Edit Rescue Report' : 'Create Rescue Report'}</h2>
-          <button className="close-btn" onClick={onClose}>&times;</button>
+          <h2>{isEditing ? 'Edit Rescue Report' : 'Create Rescue Report'}</h2>
+          <button className="close-btn" onClick={onClose} aria-label="Close modal">&times;</button>
         </div>
 
-        <div className="create-modal-body">
-          <label>Reporter Name *</label>
-          <input type="text" name="reporterName" value={form.reporterName} onChange={handleChange} />
+        <form onSubmit={handleSubmit} noValidate>
+          <div 
+            className="create-modal-body"
+            style={{
+              maxHeight: '70vh', // optional, adjust as needed
+              overflowY: 'auto',
+              scrollBehavior: 'smooth'
+            }}
+          >
+            {/* --- Form content stays unchanged --- */}
+            <div className="form-group">
+              <label htmlFor="reporterName">Reporter Name *</label>
+              <input 
+                id="reporterName"
+                type="text" 
+                name="reporterName" 
+                value={form.reporterName} 
+                onChange={handleChange} 
+                required 
+                disabled={loading}
+                placeholder="Enter reporter's full name"
+              />
+            </div>
 
-          <label>Contact Number *</label>
-          <input type="text" name="contact" value={form.contact} onChange={handleChange} />
+            <div className="form-group">
+              <label htmlFor="contact">Contact Number *</label>
+              <input 
+                id="contact"
+                type="tel" 
+                name="contact" 
+                value={form.contact} 
+                onChange={handleChange} 
+                required 
+                disabled={loading}
+                placeholder="e.g., 09123456789"
+              />
+            </div>
 
-          <label>Location *</label>
-          <input type="text" name="location" value={form.location} onChange={handleChange} />
+            <div className="form-group">
+              <label htmlFor="location">Location *</label>
+              <div className="location-input-container">
+                <input
+                  id="location"
+                  type="text"
+                  name="location"
+                  value={form.location}
+                  onChange={handleChange}
+                  required
+                  disabled={isEditing || loading}
+                  placeholder="e.g., 'at public market', 'near canarem lake', 'in bulo'"
+                  className="location-input"
+                />
+                <button
+                  type="button"
+                  className="geocode-button"
+                  onClick={handleManualGeocode}
+                  disabled={loading || !form.location.trim() || isEditing}
+                  title="Calculate coordinates for this location"
+                  aria-label="Calculate coordinates"
+                >
+                  <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-map-marker-alt'}`}></i>
+                </button>
+              </div>
+              
+              {calculatedCoords && (
+                <div className="coords-display">
+                  <span className="coords-success">
+                    ✅ <strong>{calculatedCoords.matchedLocation}</strong>
+                  </span>
+                  <span className="coords-values">
+                    ({calculatedCoords.lat.toFixed(4)}, {calculatedCoords.lng.toFixed(4)})
+                  </span>
+                </div>
+              )}
+            </div>
 
-          <label>Type of Emergency *</label>
-          <select name="emergencyType" value={form.emergencyType} onChange={handleChange}>
-            <option value="" disabled>Select Emergency Type</option>
-            {EMERGENCY_TYPES.map(([key, type]) => (
-              <option key={key} value={key}>
-                {type.label}
-              </option>
-            ))}
-          </select>
+            <hr className="form-divider" />
+            <h4>Incident Details</h4>
 
-          <label>Incident Severity *</label>
-          <select name="severity" value={form.severity} onChange={handleChange}>
-            <option value="">Select Severity</option>
-            {Object.entries(emergencySeverityMap).map(([key, severity]) => (
-              <option key={key} value={key}>
-                {severity.label} ({severity.label === 'Critical' ? 'Highest Priority' :
-                  severity.label === 'Low' ? 'Lowest Priority' : ''})
-              </option>
-            ))}
-          </select>
+            <div className="form-grid">
+              <div className="form-group">
+                <label htmlFor="emergencyCategory">Category *</label>
+                <select 
+                  id="emergencyCategory"
+                  name="emergencyCategory" 
+                  value={form.emergencyCategory} 
+                  onChange={handleChange} 
+                  required 
+                  disabled={isEditing || isCodeManuallyTyped || loading}
+                >
+                  <option value="">Select Category...</option>
+                  {Object.entries(EMERGENCY_CATEGORIES).map(([code, { label }]) => (
+                    <option key={code} value={code}>{label}</option>
+                  ))}
+                </select>
+              </div>
 
-          <label>Notes (Description)</label>
-          <textarea name="notes" value={form.notes} onChange={handleChange}></textarea>
+              <div className="form-group">
+                <label htmlFor="emergencySubtype">Subtype *</label>
+                <select 
+                  id="emergencySubtype"
+                  name="emergencySubtype" 
+                  value={form.emergencySubtype} 
+                  onChange={handleChange} 
+                  required 
+                  disabled={isEditing || isCodeManuallyTyped || !form.emergencyCategory || loading}
+                >
+                  <option value="">Select Subtype...</option>
+                  {Object.entries(availableSubtypes).map(([code, label]) => (
+                    <option key={code} value={code}>{label}</option>
+                  ))}
+                </select>
+              </div>
 
-          <label>Assign Responding Team *</label>
-          <select name="respondingTeam" value={form.respondingTeam} onChange={handleChange}>
-            <option value="" disabled>Select Team & Shift</option>
-            <option value="all-responders">All Responders</option>
-            {Object.entries(teams).map(([teamKey, teamShifts]) =>
-              ['dayShift', 'nightShift'].map((shiftKey) => {
-                const shift = teamShifts[shiftKey] || {};
-                const hasMembers = ROLE_KEYS.some(
-                  (rk) => shift[rk] && (shift[rk].uid || shift[rk].fullName || shift[rk].name)
-                );
-                const formattedTeam = teamKey.charAt(0).toUpperCase() + teamKey.slice(1);
-                return (
-                  <option key={`${teamKey}-${shiftKey}`} value={`${teamKey}-${shiftKey}`} disabled={!hasMembers}>
-                    {`Team ${formattedTeam} (${shiftKey})`}
-                  </option>
-                );
-              })
+              <div className="form-group">
+                <label htmlFor="casualtyCode">Casualty *</label>
+                <select 
+                  id="casualtyCode"
+                  name="casualtyCode" 
+                  value={form.casualtyCode} 
+                  onChange={handleChange} 
+                  required 
+                  disabled={isEditing || isCodeManuallyTyped || loading}
+                >
+                  <option value="">Select Casualty...</option>
+                  {Object.entries(CASUALTY_CODES).map(([code, label]) => (
+                    <option key={code} value={code}>{label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="severityCode">Severity *</label>
+                <select 
+                  id="severityCode"
+                  name="severityCode" 
+                  value={form.severityCode} 
+                  onChange={handleChange} 
+                  required 
+                  disabled={isEditing || isCodeManuallyTyped || loading}
+                >
+                  <option value="">Select Severity...</option>
+                  {Object.entries(SEVERITY_CODES).map(([code, { label }]) => (
+                    <option key={code} value={code}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="incidentCode"></label>
+              <input 
+                id="incidentCode"
+                type="text" 
+                name="incidentCode" 
+                value={form.incidentCode} 
+                onChange={handleChange} 
+                placeholder="e.g., MEIN-0X-@H" 
+                required 
+                className="incident-code-input"
+                disabled={isEditing || (!isCodeManuallyTyped && form.emergencyCategory && form.emergencySubtype && form.casualtyCode && form.severityCode) || loading}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="notes">Notes (Optional)</label>
+              <textarea 
+                id="notes"
+                name="notes" 
+                value={form.notes} 
+                onChange={handleChange} 
+                rows="3" 
+                disabled={isEditing || loading}
+                placeholder="Additional details about the emergency..."
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="respondingTeam">Responding Team *</label>
+              <select 
+                id="respondingTeam"
+                name="respondingTeam" 
+                value={form.respondingTeam} 
+                onChange={handleChange} 
+                required 
+                disabled={isEditing || loading}
+              >
+                <option value="">Select Team</option>
+                <option value="all-responders">All Responders</option>
+                {Object.entries(teams).flatMap(([teamKey, shifts]) =>
+                  Object.entries(shifts).map(([shiftKey]) => (
+                    <option key={`${teamKey}-${shiftKey}`} value={`${teamKey}-${shiftKey}`}>
+                      {teamKey.toUpperCase()} - {shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            {isEditing && (
+              <div className="edit-notice">
+                <i className="fas fa-info-circle"></i>
+                <small>Location, incident details, and team assignment cannot be changed when editing.</small>
+              </div>
             )}
-          </select>
-        </div>
+          </div>
 
-        <div className="create-modal-footer">
-          <button className="create-cancel-btn" onClick={onClose} disabled={loading}>
-            Cancel
-          </button>
-          <button className="create-submit-btn" onClick={handleSubmit} disabled={loading}>
-            {loading ? (reportToEdit ? 'Updating...' : 'Creating...') : reportToEdit ? 'Update Report' : 'Create Report'}
-          </button>
-        </div>
+          <div className="create-modal-footer">
+            <div className="modal-buttons">
+              <button 
+                type="button" 
+                className="create-cancel-btn"
+                onClick={onClose} 
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit" 
+                className="create-submit-btn"
+                disabled={loading || !calculatedCoords}
+                title={!calculatedCoords ? "Please calculate coordinates first using the map button" : ""}
+              >
+                {loading ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin"></i>
+                    {isEditing ? ' Updating...' : ' Creating...'}
+                  </>
+                ) : (
+                  isEditing ? 'Update Report' : 'Create Report'
+                )}
+              </button>
+            </div>
+            
+            {statusMessage && (
+              <div className={`status-message ${
+                statusMessage.includes('✅') ? 'success' : 
+                statusMessage.includes('❌') ? 'error' : 
+                'info'
+              }`} role="status" aria-live="polite">
+                {statusMessage}
+              </div>
+            )}
+          </div>
+        </form>
       </div>
     </div>
   );
