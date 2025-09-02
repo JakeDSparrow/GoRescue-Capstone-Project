@@ -31,14 +31,70 @@ export const victoriaBarangayData = [
     { "barangay": "Santa Lucia", "latitude": 15.5781, "longitude": 120.6787 }
 ];
 
-
-// Victoria, Tarlac Landmarks
+// Victoria, Tarlac Landmarks with coordinates and descriptions
 export const victoriaLandmarks = [
-    { "name": "Canarem Lake Bird Sanctuary", "location": "Canarem, Victoria, Tarlac" },
-    { "name": "Immaculate Conception Parish Church", "location": "Victoria, Tarlac" },
-    { "name": "Victoria Municipal Park", "location": "Victoria, Tarlac" },
-    { "name": "Victoria Town Hall", "location": "Victoria, Tarlac" },
-    { "name": "Victoria Industrial Park", "location": "Baculong, Victoria, Tarlac" }
+  {
+    name: "Victoria Public Market",
+    latitude: 15.5767,
+    longitude: 120.6840,
+    description: "A bustling commercial area offering a variety of goods and services to the local community."
+  },
+  {
+    name: "Victoria Public Cemetery",
+    latitude: 15.5700,
+    longitude: 120.6816,
+    description: "A serene resting place for the departed, serving as a historical landmark in the town."
+  },
+  {
+    name: "Victoria Municipal Hall",
+    latitude: 15.5771,
+    longitude: 120.6815,
+    description: "The administrative center of the municipality, housing various local government offices."
+  },
+  {
+    name: "Victoria Police Station",
+    latitude: 15.5767,
+    longitude: 120.68193,
+    barangay: "San Gavino",
+    description: "The primary law enforcement facility serving the municipality of Victoria, Tarlac."
+  },
+  {
+    name: "Victoria Fire Station",
+    latitude: 15.576683799723313,
+    longitude: 120.67972663920636,
+    barangay: "San Gavino",
+    description: "The fire protection facility providing emergency response and fire safety services for Victoria, Tarlac."
+  },
+  {
+    name: "Jose V. Yap Covered Court",
+    latitude: 15.57722663984952,
+    longitude: 120.68159504207355,
+    description: "A multipurpose covered court named after former House Speaker Jose V. Yap, serving as a venue for various community events and sports activities."
+  },
+  {
+    name: "Victoria Public Auditorium",
+    latitude: 15.575990545915552,
+    longitude: 120.68021394676198,
+    description: "A public auditorium used for community events and gatherings."
+  },
+  {
+    name: "Victoria Mini Forest",
+    latitude: 15.575778618963989,
+    longitude: 120.68008118418393,
+    description: "A small urban forest providing green space for relaxation and recreation."
+  },
+  {
+    name: "Victoria Town Park",
+    latitude: 15.577012321346938,
+    longitude: 120.68155528073162,
+    description: "A public park offering open spaces for leisure and community activities."
+  },
+  {
+    name: "Victoria Municipal Environment and Natural Resources Office (MENRO)",
+    latitude: 15.576772481398102,
+    longitude: 120.67986876405907,
+    description: "The local government office responsible for environmental and natural resource management in Victoria, Tarlac."
+  }
 ];
 
 // Team configurations 

@@ -1,163 +1,399 @@
-// Let's go with this more robust approach
-import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { db, auth } from '../../firebase';
+// src/components/DispatcherViews/TeamStatusView.jsx
+import React, { useState, useEffect } from "react";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import { db, auth } from "../../firebase";
+
+// Helper to map Firestore keys to display names
+const roleDisplayNames = {
+  teamLeader: "Team Leader",
+  emt1: "EMT 1",
+  emt2: "EMT 2",
+  ambulanceDriver: "Ambulance Driver",
+};
 
 const TeamStatusView = () => {
   const [teamStatuses, setTeamStatuses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [expandedTeams, setExpandedTeams] = useState(new Set());
   const [userId, setUserId] = useState(null);
-  const [teamsData, setTeamsData] = useState(null); // New state to hold teams data
+  const [teamsData, setTeamsData] = useState(null);
 
-  // Authenticate user anonymously
+  // Firebase anonymous auth
   useEffect(() => {
-    const setupAuth = async () => {
-      try {
-        onAuthStateChanged(auth, async (user) => {
-          if (user) {
-            setUserId(user.uid);
-          } else {
-            const userCredential = await signInAnonymously(auth);
-            setUserId(userCredential.user.uid);
-          }
-        });
-      } catch (error) {
-        console.error('Firebase auth error:', error);
-        setLoading(false);
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserId(user.uid);
+      } else {
+        try {
+          const userCredential = await signInAnonymously(auth);
+          setUserId(userCredential.user.uid);
+        } catch (error) {
+          console.error("Firebase anonymous sign-in error:", error);
+          setLoading(false);
+        }
       }
-    };
-    setupAuth();
+    });
+    return () => unsubscribeAuth();
   }, []);
 
-  // Listener for teams data
+  // Teams listener
   useEffect(() => {
     if (!userId) return;
     setLoading(true);
-    const unsubscribe = onSnapshot(collection(db, 'teams'), (snapshot) => {
-      const teams = {};
-      snapshot.forEach(doc => {
-        teams[doc.id] = {
-          id: doc.id,
-          name: doc.id.replace('-', ' ').toUpperCase(),
-          members: doc.data(),
-          missions: []
-        };
-      });
-      setTeamsData(teams); // Update the state with new teams data
-      setLoading(false);
-    }, (error) => {
-      console.error('Error fetching teams:', error);
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      collection(db, "teams"),
+      (snapshot) => {
+        const teams = {};
+        snapshot.forEach((doc) => {
+          teams[doc.id] = {
+            id: doc.id,
+            name: doc.id.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase()),
+            members: doc.data(),
+            missions: [],
+          };
+        });
+        setTeamsData(teams);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error fetching teams:", error);
+        setLoading(false);
+      }
+    );
     return () => unsubscribe();
   }, [userId]);
 
-  // Listener for incidents data, dependent on teamsData
+  // Incidents listener
   useEffect(() => {
-    // Only run this effect if teamsData is available and not null
     if (!teamsData) return;
 
     const unsubscribe = onSnapshot(
-      query(collection(db, 'incidents'), where('status', 'in', ['pending', 'in-progress'])),
+      query(
+        collection(db, "incidents"),
+        where("status", "in", ["pending", "in-progress", "completed"])
+      ),
       (snapshot) => {
         const missionsPerTeam = {};
-        snapshot.forEach(doc => {
-          const incident = doc.data();
-          const teamId = incident.respondingTeam;
+        Object.keys(teamsData).forEach(id => {
+          missionsPerTeam[id] = [];
+        });
 
-          if (teamId === 'all-responders') {
-            Object.keys(teamsData).forEach(id => {
-              if (!missionsPerTeam[id]) missionsPerTeam[id] = [];
+        snapshot.forEach((doc) => {
+          const incident = {
+            ...doc.data(),
+            id: doc.id,
+            timestamp: doc.data().timestamp?.toDate() || new Date(),
+          };
+
+          const teamId = incident.respondingTeam;
+          if (teamId === "all-responders") {
+            Object.keys(teamsData).forEach((id) => {
               missionsPerTeam[id].push(incident);
             });
-          } else if (teamId && teamsData[teamId]) {
-            if (!missionsPerTeam[teamId]) missionsPerTeam[teamId] = [];
+          } else if (teamId && missionsPerTeam[teamId]) {
             missionsPerTeam[teamId].push(incident);
           }
         });
 
-        const updatedTeams = Object.values(teamsData).map(team => ({
+        Object.keys(missionsPerTeam).forEach((teamId) => {
+          missionsPerTeam[teamId].sort(
+            (a, b) => b.timestamp.getTime() - a.timestamp.getTime()
+          );
+        });
+
+        const updatedTeams = Object.values(teamsData).map((team) => ({
           ...team,
-          missions: missionsPerTeam[team.id] || []
-        }));
+          missions: missionsPerTeam[team.id] || [],
+        })).sort((a,b) => a.name.localeCompare(b.name));
+        
         setTeamStatuses(updatedTeams);
       },
-      (error) => console.error('Error fetching incidents:', error)
+      (error) => console.error("Error fetching incidents:", error)
     );
     return () => unsubscribe();
-  }, [teamsData]); // This effect re-runs when teamsData changes
+  }, [teamsData]);
+
+  const toggleTeamExpansion = (teamId) => {
+    setExpandedTeams((prevExpanded) => {
+      const newExpanded = new Set(prevExpanded);
+      if (newExpanded.has(teamId)) {
+        newExpanded.delete(teamId);
+      } else {
+        newExpanded.add(teamId);
+      }
+      return newExpanded;
+    });
+  };
+
+  const getPriorityBadge = (priority) => {
+    if (!priority) return null;
+    return (
+      <span className={`priority-badge priority-${priority.toLowerCase()}`}>
+        {priority.toUpperCase()}
+      </span>
+    );
+  };
+
+  const getStatusBadge = (status) => {
+    if (!status) return null;
+    return (
+      <span className={`status-badge status-${status.replace("-", "")}`}>
+        {status.replace("-", " ").toUpperCase()}
+      </span>
+    );
+  };
+
+  const formatTime = (timestamp) => {
+    if (!timestamp) return "";
+    return new Date(timestamp).toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc', padding: '2rem', overflowY: 'auto' }} className="team-missions-dashboard">
-      <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '1rem' }}>
-        <i className="fas fa-chart-bar" style={{ marginRight: '0.5rem', color: '#3b82f6' }}></i>
-        Team Missions Dashboard
-      </h2>
+    <div className="dispatcher-page">
+      <div className="team-missions-dashboard">
+        {/* Header */}
+        <div className="dashboard-header">
+          <div className="header-title">
+            <div className="header-icon">
+              <i className="fas fa-chart-bar"></i>
+            </div>
+            <h1>Team Missions Dashboard</h1>
+          </div>
+          <p className="header-subtitle">
+            Live overview of team missions and statuses
+          </p>
+        </div>
 
-      {loading ? (
-        <div style={{
-          backgroundColor: 'white',
-          padding: '3rem',
-          borderRadius: '0.5rem',
-          textAlign: 'center',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-        }}>
-          <i className="fas fa-spinner fa-spin" style={{ marginRight: '0.5rem', color: '#3b82f6' }}></i>
-          Loading team missions...
-        </div>
-      ) : teamStatuses.length === 0 && teamsData && Object.keys(teamsData).length === 0 ? (
-        <div style={{
-          backgroundColor: 'white',
-          padding: '3rem',
-          borderRadius: '0.5rem',
-          textAlign: 'center',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-        }}>
-          <i className="fas fa-users" style={{ fontSize: '3rem', color: '#d1d5db', marginBottom: '1rem' }}></i>
-          <p>No teams found.</p>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gap: '1.5rem', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
-          {teamStatuses.map(team => (
-            <div key={team.id} style={{
-              backgroundColor: 'white',
-              borderRadius: '0.75rem',
-              padding: '1.5rem',
-              boxShadow: '0 4px 6px rgba(0,0,0,0.05)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>{team.name}</h3>
-                <span>{team.missions.length} mission(s)</span>
+        {/* Loading State */}
+        {loading ? (
+          <div className="team-dashboard-loading">
+            <div className="loading-content">
+              <div className="loading-spinner"></div>
+              <p>Loading team missions...</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Stats Grid */}
+            <div className="team-stats-grid">
+              <div className="stat-card">
+                <div className="stat-card-content">
+                  <div className="stat-icon in-progress">
+                    <i className="fas fa-clock"></i>
+                  </div>
+                  <div className="stat-content">
+                    <div className="stat-number">
+                      {teamStatuses.reduce(
+                        (total, team) =>
+                          total +
+                          team.missions.filter((m) => m.status === "in-progress")
+                            .length,
+                        0
+                      )}
+                    </div>
+                    <div className="stat-label">In Progress</div>
+                  </div>
+                </div>
               </div>
 
-              <div style={{ padding: '0.75rem', backgroundColor: '#f8fafc', borderRadius: '0.5rem', fontSize: '0.875rem', marginBottom: '1rem' }}>
-                <strong>Team Members ({Object.keys(team.members || {}).length}):</strong>
-                <ul style={{ paddingLeft: '1rem', marginTop: '0.25rem' }}>
-                  {Object.entries(team.members || {}).map(([role, member], index) => (
-                    member ? <li key={index}>{role}: {member.fullName || member}</li> : null
-                  ))}
-                </ul>
+              <div className="stat-card">
+                <div className="stat-card-content">
+                  <div className="stat-icon completed">
+                    <i className="fas fa-check-circle"></i>
+                  </div>
+                  <div className="stat-content">
+                    <div className="stat-number">
+                       {teamStatuses.reduce(
+                        (total, team) =>
+                          total +
+                          team.missions.filter((m) => m.status === "completed")
+                            .length,
+                        0
+                      )}
+                    </div>
+                    <div className="stat-label">Completed</div>
+                  </div>
+                </div>
               </div>
 
-              <div style={{ marginTop: '0.5rem' }}>
-                <strong>Active Missions:</strong>
-                {team.missions.length === 0 ? (
-                  <p style={{ fontSize: '0.875rem', color: '#64748b' }}>No active missions</p>
-                ) : (
-                  <ul style={{ paddingLeft: '1rem', marginTop: '0.25rem' }}>
-                    {team.missions.map((mission, idx) => (
-                      <li key={idx} style={{ fontSize: '0.875rem', marginBottom: '0.25rem' }}>
-                        <strong>{mission.reportId}</strong> - {mission.locationText || mission.description}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+              <div className="stat-card">
+                <div className="stat-card-content">
+                  <div className="stat-icon available">
+                    <i className="fas fa-users"></i>
+                  </div>
+                  <div className="stat-content">
+                    <div className="stat-number">
+                      {
+                        teamStatuses.filter(
+                          (team) =>
+                            team.missions.filter((m) => m.status !== "completed")
+                              .length === 0
+                        ).length
+                      }
+                    </div>
+                    <div className="stat-label">Available</div>
+                  </div>
+                </div>
               </div>
             </div>
-          ))}
-        </div>
-      )}
+
+            {/* Team Cards Grid */}
+            <div className="team-cards-grid">
+              {teamStatuses.map((team) => {
+                const isExpanded = expandedTeams.has(team.id);
+                const activeMissionsCount = team.missions.filter(
+                  (m) => m.status !== "completed"
+                ).length;
+
+                return (
+                  <div
+                    key={team.id}
+                    className={`team-card ${
+                      activeMissionsCount > 0 ? "has-missions" : "no-missions"
+                    }`}
+                  >
+                    {/* Card Header */}
+                    <div className="team-card-header">
+                      <h3>{team.name}</h3>
+                      <div className="team-badges">
+                         {team.missions.filter((m) => m.status === "in-progress")
+                          .length > 0 && (
+                          <span className="mission-count active">
+                            {
+                              team.missions.filter(
+                                (m) => m.status === "in-progress"
+                              ).length
+                            }{" "}
+                            Active
+                          </span>
+                        )}
+                        {team.missions.filter((m) => m.status === "pending")
+                          .length > 0 && (
+                          <span className="mission-count pending">
+                            {
+                              team.missions.filter(
+                                (m) => m.status === "pending"
+                              ).length
+                            }{" "}
+                            Pending
+                          </span>
+                        )}
+                        {activeMissionsCount === 0 && (
+                          <span className="mission-count available">
+                            Available
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Members */}
+                    <div className="team-card-members">
+                      <div className="members-header">
+                        <i className="fas fa-user-friends"></i>
+                        <p className="members-title">Team Members</p>
+                      </div>
+                      <div className="members-grid">
+                        {Object.entries(roleDisplayNames).map(([key, role]) =>
+                          team.members[key] ? (
+                            <div key={key} className="member-item">
+                              <span className="member-role">{role}:</span>
+                              <span className="member-name">
+                                {team.members[key].fullName || "N/A"}
+                              </span>
+                            </div>
+                          ) : null
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Missions */}
+                    <div className="team-card-missions">
+                      <div
+                        className="missions-header"
+                        onClick={() => toggleTeamExpansion(team.id)}
+                      >
+                        <div className="missions-title">
+                          <i className="fas fa-tasks"></i>
+                          <strong>
+                            Missions ({team.missions.length})
+                          </strong>
+                        </div>
+                        {team.missions.length > 0 && (
+                          <i
+                            className={`fas fa-chevron-${
+                              isExpanded ? "up" : "down"
+                            } expand-icon`}
+                          ></i>
+                        )}
+                      </div>
+
+                      {team.missions.length === 0 ? (
+                        <div className="no-missions">
+                          <i className="fas fa-inbox"></i>
+                          <p>No active missions</p>
+                          <p className="sub-text">This team is currently free</p>
+                        </div>
+                      ) : (
+                        <div className="missions-content">
+                           <div className="missions-list">
+                            {(isExpanded ? team.missions : team.missions.slice(0, 5)).map((mission) => (
+                                <div key={mission.id} className="mission-item">
+                                  <div className="mission-header">
+                                    <div className="mission-id-priority">
+                                      <strong className="mission-id">
+                                        {mission.reportId || mission.id}
+                                      </strong>
+                                      {getPriorityBadge(mission.emergencySeverity)}
+                                    </div>
+                                    <div className="mission-time">
+                                      <i className="fas fa-clock"></i>
+                                      {formatTime(mission.timestamp)}
+                                    </div>
+                                  </div>
+
+                                  <div className="mission-location">
+                                    <i className="fas fa-map-marker-alt"></i>
+                                    {mission.locationText || "Location not specified"}
+                                  </div>
+
+                                  {mission.notes && (
+                                    <div className="mission-description">
+                                      {mission.notes}
+                                    </div>
+                                  )}
+
+                                  <div className="mission-status">
+                                    {getStatusBadge(mission.status)}
+                                  </div>
+                                </div>
+                              )
+                            )}
+                          </div>
+                          
+                          {team.missions.length > 5 && !isExpanded && (
+                            <div className="show-more-button">
+                              <button
+                                onClick={() => toggleTeamExpansion(team.id)}
+                              >
+                                Show {team.missions.length - 5} more missions
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 };

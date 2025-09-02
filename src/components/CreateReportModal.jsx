@@ -29,49 +29,60 @@ export { emergencySeverityMap, emergencyTypeMap };
 
 const ROLE_KEYS = ['teamLeader', 'emt1', 'emt2', 'ambulanceDriver'];
 
-// Enhanced landmark data with coordinates
-const enhancedLandmarks = [
-  { name: 'canarem lake bird sanctuary', latitude: 15.5970, longitude: 120.7131, barangay: 'Canarem' },
-  { name: 'canarem lake', latitude: 15.5970, longitude: 120.7131, barangay: 'Canarem' },
-  { name: 'bird sanctuary', latitude: 15.5970, longitude: 120.7131, barangay: 'Canarem' },
-  { name: 'immaculate conception parish church', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'parish church', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'church', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'victoria municipal park', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'municipal park', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'park', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'victoria town hall', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'town hall', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'municipal hall', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'city hall', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'victoria industrial park', latitude: 15.5443, longitude: 120.6409, barangay: 'Baculong' },
-  { name: 'industrial park', latitude: 15.5443, longitude: 120.6409, barangay: 'Baculong' },
-  { name: 'public market', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'market', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'fire station', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'police station', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'hospital', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'health center', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'cemetery', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' },
-  { name: 'school', latitude: 15.5978, longitude: 120.6813, barangay: 'San Agustin' }
-];
-
 const findSingleLocationCoords = async (locationText, barangayData, landmarkData) => {
   const normalizedText = locationText.toLowerCase().trim();
-  
-  // Check enhanced landmarks first
-  for (const landmark of enhancedLandmarks) {
-    if (normalizedText.includes(landmark.name)) {
-      return {
-        lat: landmark.latitude,
-        lng: landmark.longitude,
-        precision: 'exact-landmark',
-        matchedLocation: `${landmark.name.charAt(0).toUpperCase() + landmark.name.slice(1)} (${landmark.barangay})`
-      };
+  let bestMatch = null;
+  let highestScore = 0;
+
+  // --- Landmark Matching with Scoring ---
+  if (landmarkData && Array.isArray(landmarkData)) {
+    for (const landmark of landmarkData) {
+      const landmarkName = landmark.name.toLowerCase();
+      let currentScore = 0;
+
+      // 1. Perfect Match (highest score)
+      if (normalizedText.includes(landmarkName)) {
+        currentScore = 100; // Give a very high score for a full name match
+      }
+      // 2. Partial Keyword Match (lower score)
+      else {
+        const keywords = landmarkName.split(' ').filter(word => 
+          word.length > 3 && !['the', 'and', 'of', 'in', 'at', 'for', 'with'].includes(word)
+        );
+        
+        let matchedKeywords = 0;
+        for (const keyword of keywords) {
+          if (normalizedText.includes(keyword)) {
+            matchedKeywords++;
+          }
+        }
+        
+        // Score based on the percentage of matched keywords
+        if (keywords.length > 0) {
+          currentScore = (matchedKeywords / keywords.length) * 10;
+        }
+      }
+
+      // If this landmark has a better score than the previous best, update it
+      if (currentScore > highestScore) {
+        highestScore = currentScore;
+        bestMatch = {
+          lat: landmark.latitude,
+          lng: landmark.longitude,
+          precision: currentScore === 100 ? 'exact-landmark' : 'landmark-partial',
+          matchedLocation: `${landmark.name} ${landmark.barangay ? `(${landmark.barangay})` : ''}`
+        };
+      }
     }
   }
-  
-  // Check barangays
+
+  // If we found a good landmark match, return it.
+  // The threshold (e.g., > 1) prevents very weak matches.
+  if (bestMatch && highestScore > 1) {
+    return bestMatch;
+  }
+
+  // --- Barangay Matching (Fallback) ---
   if (barangayData && Array.isArray(barangayData)) {
     for (const barangay of barangayData) {
       const barangayName = barangay.barangay.toLowerCase();
@@ -79,6 +90,7 @@ const findSingleLocationCoords = async (locationText, barangayData, landmarkData
       if (normalizedText.includes(barangayName) || 
           normalizedText.includes(`brgy ${barangayName}`) ||
           normalizedText.includes(`barangay ${barangayName}`)) {
+        // Return immediately as barangay match is a clear fallback
         return { 
           lat: barangay.latitude, 
           lng: barangay.longitude,
@@ -89,7 +101,7 @@ const findSingleLocationCoords = async (locationText, barangayData, landmarkData
     }
   }
 
-  return null;
+  return null; // Return null if no suitable match is found
 };
 
 const geocodeLocation = async (locationText) => {
@@ -305,14 +317,21 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
   // Auto-build incident code from dropdowns
   useEffect(() => {
     if (isCodeManuallyTyped) return;
-    const { emergencyCategory, emergencySubtype, casualtyCode, severityCode } = form;
-    if (emergencyCategory && emergencySubtype && casualtyCode && severityCode) {
-      const newCode = `${emergencyCategory}${emergencySubtype}-${casualtyCode}-${severityCode}`;
+    
+    if (form.emergencyCategory && form.emergencySubtype && form.casualtyCode && form.severityCode) {
+      const newCode = `${form.emergencyCategory}${form.emergencySubtype}-${form.casualtyCode}-${form.severityCode}`;
       if (newCode !== form.incidentCode) {
         setForm(prev => ({ ...prev, incidentCode: newCode }));
       }
     }
-  }, [form.emergencyCategory, form.emergencySubtype, form.casualtyCode, form.severityCode, isCodeManuallyTyped]);
+  }, [
+    form.emergencyCategory, 
+    form.emergencySubtype, 
+    form.casualtyCode, 
+    form.severityCode, 
+    form.incidentCode,
+    isCodeManuallyTyped
+  ]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -367,7 +386,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         setStatusMessage(`✅ Location found: ${coords.matchedLocation}`);
       } else {
         setCalculatedCoords(null);
-        setStatusMessage('❌ Location not recognized. Try: "at public market", "near canarem lake", "in bulo"');
+        setStatusMessage('❌ Location not recognized. Try landmark names, barangay names, or common locations.');
       }
     } catch (error) {
       console.error('Manual geocoding error:', error);
@@ -483,12 +502,11 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           <div 
             className="create-modal-body"
             style={{
-              maxHeight: '70vh', // optional, adjust as needed
+              maxHeight: '70vh',
               overflowY: 'auto',
               scrollBehavior: 'smooth'
             }}
           >
-            {/* --- Form content stays unchanged --- */}
             <div className="form-group">
               <label htmlFor="reporterName">Reporter Name *</label>
               <input 
@@ -528,7 +546,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
                   onChange={handleChange}
                   required
                   disabled={isEditing || loading}
-                  placeholder="e.g., 'at public market', 'near canarem lake', 'in bulo'"
+                  placeholder="e.g., 'Victoria Public Market', 'Canarem Lake', 'Barangay Bulo'"
                   className="location-input"
                 />
                 <button
@@ -594,7 +612,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
               </div>
 
               <div className="form-group">
-                <label htmlFor="casualtyCode">Casualty *</label>
+                <label htmlFor="casualtyCode"> Casualty *</label>
                 <select 
                   id="casualtyCode"
                   name="casualtyCode" 

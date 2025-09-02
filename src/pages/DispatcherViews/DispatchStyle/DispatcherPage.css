@@ -911,107 +911,568 @@
   background-color: #c0392b;
 }
 
-/* === Team Missions Dashboard === */
+/* === Enhanced Team Missions Dashboard === */
 .dispatcher-page .team-missions-dashboard {
-  min-height: 100vh;
-  background-color: var(--secondary);
-  padding: 2rem;
+  padding: 2rem 2.5rem;
+  background-color: #f8fafc;
+  min-height: calc(100vh - 60px);
   overflow-y: auto;
-  font-family: "Segoe UI", sans-serif;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
 }
 
-.dispatcher-page .team-missions-dashboard h2 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  margin-bottom: 1rem;
+/* Header */
+.dispatcher-page .team-missions-dashboard .dashboard-header {
+  margin-bottom: 2rem;
+}
+
+.dispatcher-page .team-missions-dashboard .header-title {
   display: flex;
   align-items: center;
-  color: #2c3e50;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
-.dispatcher-page .team-missions-dashboard h2 i {
-  margin-right: 0.5rem;
-  color: #3b82f6;
-}
-
-.dispatcher-page .team-dashboard-loading,
-.dispatcher-page .team-dashboard-empty {
-  background-color: var(--light);
-  padding: 3rem;
+.dispatcher-page .team-missions-dashboard .header-icon {
+  padding: 0.5rem;
+  background-color: #dbeafe;
   border-radius: 0.5rem;
-  text-align: center;
-  box-shadow: var(--shadow);
-  color: #64748b;
 }
 
-.dispatcher-page .team-dashboard-empty i {
-  font-size: 3rem;
-  color: #d1d5db;
+.dispatcher-page .team-missions-dashboard .header-icon i {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: #2563eb;
+}
+
+.dispatcher-page .team-missions-dashboard h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+}
+
+.dispatcher-page .team-missions-dashboard .header-subtitle {
+  color: #6b7280;
+  font-size: 1rem;
+  margin: 0;
+}
+
+/* Loading and Empty States */
+.dispatcher-page .team-dashboard-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5rem 3rem;
+  text-align: center;
+}
+
+.dispatcher-page .team-dashboard-loading .loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.dispatcher-page .team-dashboard-loading .loading-spinner {
+  width: 3rem;
+  height: 3rem;
+  border: 2px solid #e5e7eb;
+  border-top: 2px solid #2563eb;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
   margin-bottom: 1rem;
 }
 
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.dispatcher-page .team-dashboard-loading p {
+  color: #6b7280;
+  font-size: 1.125rem;
+  margin: 0;
+}
+
+/* Statistics Cards */
+.dispatcher-page .team-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.dispatcher-page .stat-card {
+  background-color: white;
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  border: 1px solid #e5e7eb;
+}
+
+.dispatcher-page .stat-card-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dispatcher-page .stat-icon {
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  flex-shrink: 0;
+}
+
+.dispatcher-page .stat-icon.in-progress {
+  background-color: #dbeafe;
+}
+
+.dispatcher-page .stat-icon.completed {
+  background-color: #d1fae5;
+}
+
+.dispatcher-page .stat-icon.available {
+  background-color: #f3f4f6;
+}
+
+.dispatcher-page .stat-icon i {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.dispatcher-page .stat-icon.in-progress i {
+  color: #2563eb;
+}
+
+.dispatcher-page .stat-icon.completed i {
+  color: #059669;
+}
+
+.dispatcher-page .stat-icon.available i {
+  color: #4b5563;
+}
+
+.dispatcher-page .stat-content .stat-number {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1;
+  margin: 0;
+}
+
+.dispatcher-page .stat-content .stat-label {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0.25rem 0 0 0;
+}
+
+/* Teams Grid */
 .dispatcher-page .team-cards-grid {
   display: grid;
   gap: 1.5rem;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
 }
 
+/* Individual Team Cards */
 .dispatcher-page .team-card {
-  background-color: var(--light);
+  background-color: white;
   border-radius: 0.75rem;
-  padding: 1.5rem;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  border: 2px solid #e5e7eb;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.dispatcher-page .team-card:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.dispatcher-page .team-card.has-missions {
+  border-color: #fca5a5;
+}
+
+.dispatcher-page .team-card.has-missions:hover {
+  border-color: #f87171;
+}
+
+.dispatcher-page .team-card.no-missions {
+  border-color: #86efac;
+}
+
+.dispatcher-page .team-card.no-missions:hover {
+  border-color: #4ade80;
+}
+
+/* Team Card Header */
+.dispatcher-page .team-card-header {
+  padding: 1.5rem 1.5rem 1rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.dispatcher-page .team-card-header h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+}
+
+.dispatcher-page .team-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.dispatcher-page .mission-count {
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.dispatcher-page .mission-count.active {
+  background-color: #dbeafe;
+  color: #1d4ed8;
+}
+
+.dispatcher-page .mission-count.pending {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.dispatcher-page .mission-count.available {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+/* Team Members Section */
+.dispatcher-page .team-card-members {
+  padding: 0 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.dispatcher-page .team-card-members .members-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.dispatcher-page .team-card-members .members-header i {
+  width: 1rem;
+  height: 1rem;
+  color: #6b7280;
+}
+
+.dispatcher-page .team-card-members .members-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  margin: 0;
+}
+
+.dispatcher-page .team-card-members .members-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.25rem;
+}
+
+.dispatcher-page .team-card-members .member-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.875rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.dispatcher-page .team-card-members .member-role {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.dispatcher-page .team-card-members .member-name {
+  color: #111827;
+}
+
+/* Missions Section */
+.dispatcher-page .team-card-missions {
+  border-top: 1px solid #f3f4f6;
+}
+
+.dispatcher-page .missions-header {
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  background-color: #f9fafb;
+  transition: background-color 0.2s ease;
+}
+
+.dispatcher-page .missions-header:hover {
+  background-color: #f3f4f6;
+}
+
+.dispatcher-page .missions-header .missions-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dispatcher-page .missions-header .missions-title i {
+  width: 1rem;
+  height: 1rem;
+  color: #f59e0b;
+}
+
+.dispatcher-page .missions-header .missions-title strong {
+  font-weight: 500;
+  color: #111827;
+}
+
+.dispatcher-page .missions-header .expand-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #9ca3af;
+}
+
+/* Mission List */
+.dispatcher-page .missions-content {
+  padding: 0 1.5rem 1.5rem 1.5rem;
+}
+
+.dispatcher-page .no-missions {
+  text-align: center;
+  padding: 2rem;
+  color: #6b7280;
+}
+
+.dispatcher-page .no-missions i {
+  width: 2rem;
+  height: 2rem;
+  color: #d1d5db;
+  margin: 0 auto 0.5rem auto;
+  display: block;
+}
+
+.dispatcher-page .no-missions p {
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0 0;
+}
+
+.dispatcher-page .no-missions .sub-text {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin: 0.25rem 0 0 0;
+}
+
+.dispatcher-page .missions-list {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
 
-.dispatcher-page .team-card-header {
+.dispatcher-page .mission-item {
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.dispatcher-page .mission-item:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+.dispatcher-page .mission-header {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+  gap: 8px ;
+}
+
+.dispatcher-page .mission-id-priority {
+  display: flex;
   align-items: center;
+  gap: 0.5rem;
 }
 
-.dispatcher-page .team-card-header h3 {
-  font-size: 1.125rem;
-  font-weight: 600;
-}
-
-.dispatcher-page .team-card-members,
-.dispatcher-page .team-card-missions {
-  padding: 0.75rem;
-  background-color: #f8fafc;
-  border-radius: 0.5rem;
+.dispatcher-page .mission-id {
+  font-family: 'Courier New', monospace;
   font-size: 0.875rem;
+  font-weight: 700;
+  color: #dc2626;
 }
 
-.dispatcher-page .team-card-members ul,
-.dispatcher-page .team-card-missions ul {
-  padding-left: 1rem;
-  margin-top: 0.25rem;
-  list-style: disc;
+.dispatcher-page .mission-time {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #6b7280;
 }
 
-.dispatcher-page .team-card-members li,
-.dispatcher-page .team-card-missions li {
-  margin-bottom: 0.25rem;
+.dispatcher-page .mission-time i {
+  width: 0.75rem;
+  height: 0.75rem;
 }
 
-.dispatcher-page .team-card-members strong,
-.dispatcher-page .team-card-missions strong {
-  display: block;
-  margin-bottom: 0.25rem;
-}
-
-.dispatcher-page .team-card-members li {
+.dispatcher-page .mission-location {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
   color: #374151;
 }
 
-.dispatcher-page .team-card-missions li {
-  color: #2c3e50;
+.dispatcher-page .mission-location i {
+  width: 1rem;
+  height: 1rem;
+  color: #9ca3af;
 }
 
-.dispatcher-page .team-card-missions p {
+.dispatcher-page .mission-description {
   font-size: 0.875rem;
-  color: #64748b;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+}
+
+.dispatcher-page .mission-status {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Priority and Status Badges */
+.dispatcher-page .priority-badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid;
+}
+
+.dispatcher-page .priority-badge.priority-critical {
+  background-color: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.dispatcher-page .priority-badge.priority-high {
+  background-color: #fff7ed;
+  color: #ea580c;
+  border-color: #fed7aa;
+}
+
+.dispatcher-page .priority-badge.priority-medium {
+  background-color: #fffbeb;
+  color: #d97706;
+  border-color: #fde68a;
+}
+
+.dispatcher-page .priority-badge.priority-low {
+  background-color: #f0fdf4;
+  color: #16a34a;
+  border-color: #bbf7d0;
+}
+
+.dispatcher-page .status-badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.dispatcher-page .status-badge.status-inprogress {
+  background-color: #dbeafe;
+  color: #1d4ed8;
+}
+
+.dispatcher-page .status-badge.status-pending {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.dispatcher-page .status-badge.status-completed {
+  background-color: #d1fae5;
+  color: #16a34a;
+}
+
+/* Show More Button */
+.dispatcher-page .show-more-button {
+  text-align: center;
+  padding-top: 0.5rem;
+}
+
+.dispatcher-page .show-more-button button {
+  font-size: 0.875rem;
+  color: #2563eb;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  padding: 0.5rem;
+}
+
+.dispatcher-page .show-more-button button:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .dispatcher-page .team-missions-dashboard {
+    padding: 1.5rem 2rem;
+  }
+  
+  .dispatcher-page .team-cards-grid {
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.25rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .dispatcher-page .team-missions-dashboard {
+    padding: 1.25rem 1.5rem;
+  }
+  
+  .dispatcher-page .team-missions-dashboard h1 {
+    font-size: 1.5rem;
+  }
+  
+  .dispatcher-page .team-stats-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .dispatcher-page .team-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .dispatcher-page .team-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  
+  .dispatcher-page .team-badges {
+    align-items: flex-start;
+    align-self: stretch;
+  }
+  
+  .dispatcher-page .mission-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .dispatcher-page .mission-time {
+    align-self: flex-end;
+  }
 }
