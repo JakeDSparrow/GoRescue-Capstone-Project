@@ -39,6 +39,7 @@ export default function DispatcherPage() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [contextMenu, setContextMenu] = useState({ show: false, x: 0, y: 0, menuItem: null });
+  const acknowledgedSeen = useRef(new Set());
 
   const db = getFirestore();
   const notificationAudio = useRef(new Audio(alertSound));
@@ -50,6 +51,15 @@ export default function DispatcherPage() {
   const highlightTimers = useRef({});
   const [currentTeam, setCurrentTeam] = useState(null);
   const [teams, setTeams] = useState({ alpha: [], bravo: [] });
+  const [toasts, setToasts] = useState([]);
+
+  const showToast = (text) => {
+    const id = `toast-${Date.now()}`;
+    setToasts(prev => [...prev, { id, text }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  };
 
   // Restore data from sessionStorage on load
   useEffect(() => {
@@ -381,7 +391,7 @@ export default function DispatcherPage() {
   // Firestore realtime fetch report logs
   useEffect(() => {
     const incidentsRef = collection(db, 'incidents');
-    const q = query(incidentsRef, where('status', 'in', ['pending', 'in-progress']));
+    const q = query(incidentsRef, where('status', 'in', ['Pending', 'Acknowledged', 'In Progress']));
 
     const unsubscribe = onSnapshot(q, snapshot => {
       const fetchedReports = snapshot.docs.map(doc => {
@@ -501,6 +511,62 @@ export default function DispatcherPage() {
       setActiveView(hash);
     }
   }, []);
+
+  useEffect(() => {
+  const incidentsRef = collection(db, 'incidents');
+  const ackQuery = query(incidentsRef, where('status', '==', 'Acknowledged'));
+
+  const unsubscribe = onSnapshot(ackQuery, (snapshot) => {
+    snapshot.docChanges().forEach((dc) => {
+      const data = dc.doc.data();
+      const docId = dc.doc.id;
+
+      // Make a unique key per acknowledgement (doc + timestamp)
+      const ackAtIso = data.acknowledgedAt?.toDate
+        ? data.acknowledgedAt.toDate().toISOString()
+        : (data.acknowledgedAt || '');
+      const uniqueKey = `${docId}-${ackAtIso || 'noAckTime'}`;
+      if (acknowledgedSeen.current.has(uniqueKey)) return;
+      acknowledgedSeen.current.add(uniqueKey);
+
+      // Normalize location: either `location` object or `latitude/longitude` strings
+      const locFromField = typeof data.location === 'string' ? JSON.parse(data.location) : data.location;
+      const locFromLatLng = (data.latitude && data.longitude)
+        ? { lat: Number(data.latitude), lng: Number(data.longitude) }
+        : undefined;
+      const location = locFromField || locFromLatLng;
+
+      const severity = data.emergencySeverity || data.severity || 'N/A';
+      const reporter = data.reporter || 'Unknown';
+      const acknowledgingUser = data.acknowledgedBy || 'Unknown';
+      const emergencyType = data.emergencyType || 'Incident';
+
+      // Push a notification item (appears in Notifications view)
+      const notificationItem = {
+        id: `ack-${docId}-${Date.now()}`,
+        type: 'acknowledged',
+        title: 'Responder Acknowledged',
+        details: `${emergencyType} acknowledged by ${acknowledgingUser}`,
+        severity,
+        reporter,
+        location,
+        timestamp: ackAtIso || new Date().toISOString(),
+        responded: true
+      };
+      setNotifications(prev => [...prev, notificationItem]);
+
+      // Show a toast
+      const coordsText = location?.lat && location?.lng
+        ? ` @ (${Number(location.lat).toFixed(5)}, ${Number(location.lng).toFixed(5)})`
+        : '';
+      showToast(`Acknowledged: ${emergencyType}${coordsText}`);
+    });
+  }, (error) => {
+    console.error('Error listening for acknowledgements:', error);
+  });
+
+  return () => unsubscribe();
+}, [db]);
 
   const menuItems = [
     { id: 'map-view', icon: 'fa-map', label: 'Live Map' },
@@ -653,6 +719,35 @@ export default function DispatcherPage() {
             </div>
           </div>
         )}
+
+        {/* Toasts */}
+        <div
+          style={{
+            position: 'fixed',
+            right: 16,
+            bottom: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            zIndex: 2000
+          }}
+        >
+          {toasts.map(t => (
+            <div
+              key={t.id}
+              style={{
+                background: '#2ecc71',
+                color: 'white',
+                padding: '12px 16px',
+                borderRadius: 8,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                maxWidth: 360
+              }}
+            >
+              {t.text}
+            </div>
+          ))}
+        </div>
 
       </div>
     </div>

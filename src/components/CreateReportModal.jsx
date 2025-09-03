@@ -451,7 +451,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         locationPrecision: calculatedCoords.precision || 'unknown',
         matchedLocation: calculatedCoords.matchedLocation || form.location,
         notes: form.notes || '',
-        status: reportToEdit?.status || 'pending',
+        status: reportToEdit?.status || 'Pending',
         timestamp: serverTimestamp(),
         respondingTeam: form.respondingTeam,
         teamData,

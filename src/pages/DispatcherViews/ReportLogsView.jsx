@@ -46,6 +46,13 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
     }
   }, [reportLogs, setReportLogs]);
 
+  const activeReports = reportLogs.filter(
+    (log) =>
+      log.status === 'Pending' ||
+      log.status === 'Acknowledged' ||
+      log.status === 'In Progress'
+  );
+
   const handleView = (log) => {
     setSelectedReport(log);
     setViewModalOpen(true);
@@ -59,7 +66,7 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
   const closeViewModal = () => setViewModalOpen(false);
   const closeEditModal = () => setEditModalOpen(false);
 
-  return (
+return (
     <div className="card">
       <h2>Report Logs</h2>
       <div className="table-container">
@@ -67,7 +74,7 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
           <thead>
             <tr>
               <th>Report ID</th>
-              <th>Emergency Type</th> {/* New header */}
+              <th>Emergency Type</th>
               <th>Emergency Severity</th>
               <th>Reported By</th>
               <th>Responding Team</th>
@@ -77,28 +84,27 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
             </tr>
           </thead>
           <tbody>
-            {reportLogs.length === 0 ? (
+            {activeReports.length === 0 ? (
               <tr className="empty-row">
-                <td colSpan="8"> {/* Update colspan to 8 */}
+                <td colSpan="8">
                   <div className="empty-state">
                     <i className="fas fa-inbox" />
-                    <p>No reports available</p>
+                    <p>No active reports</p>
                   </div>
                 </td>
               </tr>
             ) : (
-              reportLogs.map((log, index) => (
+              activeReports.map((log, index) => (
                 <tr key={`${log.id || log.reportId}-${index}`}>
-                  <td>{safeRender(log.reportId || log.id)}</td>
-                  {/* New cell for emergency type */}
+                  <td>{log.reportId || log.id}</td>
                   <td>
                     <span
                       style={{
                         color: emergencyTypeMap[log.emergencyType]?.color || '#000',
-                        fontWeight: 'bold'
+                        fontWeight: 'bold',
                       }}
                     >
-                      {safeRender(emergencyTypeMap[log.emergencyType]?.label || log.emergencyType)}
+                      {emergencyTypeMap[log.emergencyType]?.label || log.emergencyType}
                     </span>
                   </td>
                   <td>
@@ -112,12 +118,12 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
                         textTransform: 'uppercase',
                       }}
                     >
-                      {safeRender(emergencySeverityMap[log.emergencySeverity]?.label || log.emergencySeverity)}
+                      {emergencySeverityMap[log.emergencySeverity]?.label || log.emergencySeverity}
                     </span>
                   </td>
                   <td>
-                    {safeRender(log.reporter)} <br />
-                    <small>{safeRender(log.contact)}</small>
+                    {log.reporter} <br />
+                    <small>{log.contact}</small>
                   </td>
                   <td>{formatRespondingTeam(log.respondingTeam)}</td>
                   <td>
@@ -130,23 +136,15 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
                         borderRadius: '4px',
                       }}
                     >
-                      {safeRender(statusMap[log.status]?.label || log.status)}
+                      {statusMap[log.status]?.label || log.status}
                     </span>
                   </td>
-                  <td>{safeRender(log.timestamp ? formatDateTime(log.timestamp) : null)}</td>
+                  <td>{log.timestamp ? formatDateTime(log.timestamp) : 'N/A'}</td>
                   <td>
-                    <button
-                      className="btn-action btn-view"
-                      onClick={() => handleView(log)}
-                      title="View Details"
-                    >
+                    <button className="btn-action btn-view" onClick={() => handleView(log)}>
                       <i className="fas fa-eye" /> View
                     </button>
-                    <button
-                      className="btn-action btn-edit"
-                      onClick={() => handleEdit(log)}
-                      title="Edit Report"
-                    >
+                    <button className="btn-action btn-edit" onClick={() => handleEdit(log)}>
                       <i className="fas fa-edit" /> Edit
                     </button>
                   </td>
@@ -157,13 +155,8 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
         </table>
       </div>
 
-      {/* Modals */}
       <ViewModal isOpen={viewModalOpen} onClose={closeViewModal} report={selectedReport} />
-      <CreateRescueModal
-        isOpen={editModalOpen}
-        onClose={closeEditModal}
-        reportToEdit={selectedReport}
-      />
+      <CreateRescueModal isOpen={editModalOpen} onClose={closeEditModal} reportToEdit={selectedReport} />
     </div>
   );
 }

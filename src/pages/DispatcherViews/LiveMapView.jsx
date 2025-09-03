@@ -12,6 +12,7 @@ export default function LiveMapView({ mapRef, notifications = [], reportLogs = [
 
     const victoriaTarlac = [15.5784, 120.6819];
     const map = L.map(mapContainer).setView(victoriaTarlac, 14);
+    
 
     L.tileLayer(
       `https://maps.geoapify.com/v1/tile/osm-bright/{z}/{x}/{y}.png?apiKey=499958bc884b4b8cae36c651db0a3d7d`,
