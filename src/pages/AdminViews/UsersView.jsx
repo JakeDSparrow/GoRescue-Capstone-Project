@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 import { doc, setDoc, collection, getDocs } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { getFunctions, httpsCallable } from "firebase/functions";
 import AddUserModal from '../../components/AddUserModal';
 
 const UsersView = () => {
@@ -10,34 +10,36 @@ const UsersView = () => {
     const [formData, setFormData] = useState({});
     const [showAddUserModal, setShowAddUserModal] = useState(false);
 
-    const auth = getAuth();
-
     useEffect(() => {
         const fetchUsers = async () => {
             try {
                 const querySnapshot = await getDocs(collection(db, "mdrrmo-users"));
-                const fetchedUsers = [];
-                querySnapshot.forEach((doc) => {
-                    fetchedUsers.push({ ...doc.data(), id: doc.id });
-                });
+                const fetchedUsers = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                 setUsers(fetchedUsers);
             } catch (error) {
                 console.error("Error fetching users from Firestore:", error);
             }
         };
-
         fetchUsers();
     }, []);
 
-    const calculateAge = (birthdate) => {
-        const today = new Date();
-        const birthDate = new Date(birthdate);
-        let age = today.getFullYear() - birthDate.getFullYear();
-        const monthDiff = today.getMonth() - birthDate.getMonth();
-        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-            age--;
+    const handleAddUser = async (newUserData) => {
+        const functions = getFunctions();
+        const addUserFunction = httpsCallable(functions, 'addUser');
+        try {
+            await addUserFunction(newUserData);
+            
+            // Refetch users to get the latest list including the new one
+            const querySnapshot = await getDocs(collection(db, "mdrrmo-users"));
+            const updatedUsers = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+            setUsers(updatedUsers);
+
+            alert("User successfully added!");
+            setShowAddUserModal(false);
+        } catch (error) {
+            console.error("Error adding user via cloud function:", error);
+            alert(`Failed to add user: ${error.message}`);
         }
-        return age;
     };
 
     const handleEdit = (user) => {
@@ -51,72 +53,21 @@ const UsersView = () => {
 
     const handleSave = async () => {
         try {
-            const cleanedFormData = {
-                ...formData,
-                role: String(formData.role || '').toLowerCase(),
-                status: String(formData.status || '').toLowerCase()
-            };
-
             const userRef = doc(db, "mdrrmo-users", editingId);
-            await setDoc(userRef, cleanedFormData, { merge: true });
+            await setDoc(userRef, formData, { merge: true });
 
-            const querySnapshot = await getDocs(collection(db, "mdrrmo-users"));
-            const updatedUsers = [];
-            querySnapshot.forEach((doc) => {
-                updatedUsers.push({ ...doc.data(), id: doc.id });
-            });
-            setUsers(updatedUsers);
+            // Update local state to reflect the changes immediately
+            setUsers(users.map(user => user.id === editingId ? { ...formData, id: editingId } : user));
             setEditingId(null);
         } catch (error) {
-            console.error("🔥 Error during handleSave:", error);
-            alert("Failed to save changes. Check console for details.");
+            console.error("Error during handleSave:", error);
+            alert("Failed to save changes.");
         }
     };
 
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleAddUser = async (userData) => {
-        try {
-            // Generate a unique ID for the user
-            const userId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-            
-            const newUserDoc = {
-                ...userData,
-                id: userId,
-                uid: null, // No Firebase Auth account yet
-                accountStatus: 'pending', // User needs to complete registration
-                createdAt: new Date().toISOString(),
-                createdBy: auth.currentUser.uid
-            };
-
-            // Save user data to Firestore
-            await setDoc(doc(db, "mdrrmo-users", userId), newUserDoc);
-            
-            // Update the users list
-            setUsers(prev => [...prev, newUserDoc]);
-            setShowAddUserModal(false);
-
-            alert(`User added successfully! They can now register using email: ${userData.email}`);
-            
-        } catch (error) {
-            console.error("Error adding user:", error);
-            alert(`Error adding user: ${error.message}`);
-        }
-    };
-
-    const handleNewUserChange = (e) => {
-        const { name, value } = e.target;
-        const newFormData = { ...formData, [name]: value };
-
-        if (name === 'birthdate') {
-            const age = calculateAge(value);
-            newFormData.age = age > 0 ? age.toString() : '';
-        }
-        
-        setFormData(newFormData);
     };
 
     const filteredUsers = users.filter(user => user.role === "responder" || user.role === "dispatcher");
@@ -168,7 +119,7 @@ const UsersView = () => {
                                     <h3>{user.fullName}</h3>
                                     <div className="user-meta">
                                         <span className={`user-status ${String(user.status || '').toLowerCase()}`}>
-                                            {user.role === "dispatcher" ? "active" : (user.status || 'unknown')}
+                                            {user.status || 'unknown'}
                                         </span>
                                         <span className={`user-role ${String(user.role || '').toLowerCase()}`}>
                                             {user.role || 'unknown'}
@@ -186,7 +137,6 @@ const UsersView = () => {
                                     <button
                                         className="btn btn-primary"
                                         onClick={() => handleEdit(user)}
-                                        disabled={user.status === "inactive"}
                                     >
                                         <i className="fas fa-edit"></i> Edit
                                     </button>
@@ -199,7 +149,6 @@ const UsersView = () => {
 
             {showAddUserModal && (
                 <AddUserModal
-                    show={showAddUserModal}
                     onSubmit={handleAddUser}
                     onClose={() => setShowAddUserModal(false)}
                 />

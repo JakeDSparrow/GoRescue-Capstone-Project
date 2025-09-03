@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import TeamEditorModal from '../../components/TeamEditorModal';
 import { getFirestore, collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 const roleLabels = {
   teamLeader: 'Team Leader',
@@ -45,14 +46,11 @@ function getShiftTimes(shiftKey) {
 
 function isWithinShift(shift, now) {
   if (!shift || !shift.shiftStart || !shift.shiftEnd) return false;
-
   const start = new Date(shift.shiftStart);
   const end = new Date(shift.shiftEnd);
-
   if (start.getHours() > end.getHours()) {
     return now >= start || now < end;
   }
-
   return now >= start && now < end;
 }
 
@@ -71,75 +69,157 @@ export default function TeamOrganizerView() {
   const [selectedShiftKey, setSelectedShiftKey] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
 
   const db = getFirestore();
+  const auth = getAuth();
+
+  // Check current user and their role
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (user) {
+      const userDocRef = doc(db, 'mdrrmo-users', user.uid);
+      getDoc(userDocRef).then(docSnap => {
+        if (docSnap.exists()) {
+          const userData = { uid: docSnap.id, ...docSnap.data() };
+          setCurrentUser(userData);
+          console.log('Current user:', userData);
+        }
+      }).catch(error => {
+        console.error('Error fetching current user:', error);
+      });
+    }
+  }, [db, auth]);
+
+  async function loadTeamsData() {
+    const teamsToLoad = [];
+    for (const teamKey of teamsKeys) {
+      for (const shiftKey of shifts) {
+        const docId = `${teamKey}-${shiftKey}`;
+        const docRef = doc(db, 'teams', docId);
+        teamsToLoad.push({ teamKey, shiftKey, docRef, docId });
+      }
+    }
+
+    const snapshots = await Promise.all(
+      teamsToLoad.map(async (item) => {
+        try {
+          const docSnap = await getDoc(item.docRef);
+          return { ...item, docSnap, success: true };
+        } catch (error) {
+          console.error(`Error loading team ${item.docId}:`, error);
+          return { ...item, docSnap: null, success: false, error };
+        }
+      })
+    );
+    
+    const loadedTeams = { alpha: {}, bravo: {} };
+
+    for (const item of snapshots) {
+      const { teamKey, shiftKey, docRef, docSnap, success } = item;
+      
+      if (!success) {
+        console.warn(`Failed to load ${teamKey}-${shiftKey}, using default`);
+        loadedTeams[teamKey][shiftKey] = {
+          ...defaultShift,
+          ...getShiftTimes(shiftKey),
+          createdAt: new Date().toISOString(),
+        };
+        continue;
+      }
+
+      const times = getShiftTimes(shiftKey);
+
+      if (docSnap && docSnap.exists()) {
+        loadedTeams[teamKey][shiftKey] = {
+          ...docSnap.data(),
+          shiftStart: times.shiftStart,
+          shiftEnd: times.shiftEnd,
+        };
+      } else {
+        const newShift = {
+          ...defaultShift,
+          ...times,
+          createdAt: new Date().toISOString(),
+        };
+        loadedTeams[teamKey][shiftKey] = newShift;
+        
+        // Try to create the document
+        try {
+          await setDoc(docRef, newShift);
+          console.log(`Created new shift document: ${teamKey}-${shiftKey}`);
+        } catch (error) {
+          console.error(`Failed to create shift document ${teamKey}-${shiftKey}:`, error);
+        }
+      }
+    }
+    return loadedTeams;
+  }
 
   useEffect(() => {
-    const loadData = async () => {
+    async function loadData() {
       try {
-        console.log('Fetching data...');
-        const [respondersSnapshot, teamsData] = await Promise.all([
-          getDocs(collection(db, 'mdrrmo-users')),
-          loadTeamsData()
-        ]);
+        setLoading(true);
+        setError(null);
+        console.log('Starting to fetch data...');
 
-        const allUsers = respondersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
-        setResponders(
-          allUsers.filter(u => u.role?.toLowerCase() === 'responder' && u.status !== 'inactive')
-        );
-        setTeams(teamsData);
-        console.log('Data fetched successfully.');
+        // Load responders
+        console.log('Fetching responders...');
+        try {
+          const respondersSnapshot = await getDocs(collection(db, 'mdrrmo-users'));
+          const allUsers = respondersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+          console.log('All users fetched:', allUsers.length);
 
+          const activeResponders = allUsers.filter(
+            u => u.role?.toLowerCase() === 'responder' && u.status?.toLowerCase() !== 'inactive'
+          );
+          console.log('Active responders:', activeResponders.length);
+          setResponders(activeResponders);
+        } catch (responderError) {
+          console.error('❌ Failed to load responders:', responderError);
+          console.error('Error code:', responderError.code);
+          console.error('Error message:', responderError.message);
+          throw new Error(`Failed to load responders: ${responderError.message}`);
+        }
+
+        // Load teams data
+        console.log('Fetching teams data...');
+        try {
+          const teamsData = await loadTeamsData();
+          console.log('Teams data loaded:', teamsData);
+          setTeams(teamsData);
+        } catch (teamsError) {
+          console.error('❌ Failed to load teams:', teamsError);
+          console.error('Error code:', teamsError.code);
+          console.error('Error message:', teamsError.message);
+          throw new Error(`Failed to load teams: ${teamsError.message}`);
+        }
+
+        console.log('✅ All data fetched successfully');
       } catch (error) {
-        console.error('Failed to load data:', error);
+        console.error('❌ Failed to load data:', error);
+        setError(error.message);
+      } finally {
+        setLoading(false);
       }
-    };
+    }
 
-    const loadTeamsData = async () => {
-      const teamsToLoad = [];
-      for (const teamKey of teamsKeys) {
-        for (const shiftKey of shifts) {
-          const docId = `${teamKey}-${shiftKey}`;
-          const docRef = doc(db, 'teams', docId);
-          teamsToLoad.push({ teamKey, shiftKey, docRef });
-        }
-      }
-
-      const snapshots = await Promise.all(teamsToLoad.map(item => getDoc(item.docRef)));
-      const loadedTeams = { alpha: {}, bravo: {} };
-
-      for (let i = 0; i < snapshots.length; i++) {
-        const { teamKey, shiftKey, docRef } = teamsToLoad[i];
-        const docSnap = snapshots[i];
-        const times = getShiftTimes(shiftKey);
-
-        if (docSnap.exists()) {
-          loadedTeams[teamKey][shiftKey] = {
-            ...docSnap.data(),
-            shiftStart: times.shiftStart,
-            shiftEnd: times.shiftEnd,
-          };
-        } else {
-          const newShift = {
-            ...defaultShift,
-            ...times,
-            createdAt: new Date().toISOString(),
-          };
-          loadedTeams[teamKey][shiftKey] = newShift;
-          await setDoc(docRef, newShift);
-        }
-      }
-      return loadedTeams;
-    };
-
-    loadData();
+    // Only load data if user is authenticated
+    if (auth.currentUser) {
+      loadData();
+    } else {
+      setError('User not authenticated');
+      setLoading(false);
+    }
 
     const interval = setInterval(() => {
       setCurrentTime(new Date());
     }, 60000);
 
     return () => clearInterval(interval);
-  }, [db]);
+  }, [db, auth]);
 
   const handleEdit = (teamKey, shiftKey) => {
     setSelectedTeamKey(teamKey);
@@ -156,14 +236,18 @@ export default function TeamOrganizerView() {
         createdAt: new Date().toISOString(),
         shiftStart: updatedShift.shiftStart || teams[teamKey][shiftKey].shiftStart,
         shiftEnd: updatedShift.shiftEnd || teams[teamKey][shiftKey].shiftEnd,
+        // Don't override status if it exists (let mobile app manage it)
+        status: updatedShift.status || teams[teamKey][shiftKey].status || 'active'
       };
       await setDoc(docRef, shiftToSave);
       setTeams(prev => ({
         ...prev,
         [teamKey]: { ...prev[teamKey], [shiftKey]: shiftToSave },
       }));
+      console.log(`✅ Shift saved successfully: ${docId}`);
     } catch (error) {
-      console.error('Failed to save shift:', error);
+      console.error('❌ Failed to save shift:', error);
+      alert(`Failed to save shift: ${error.message}`);
     }
   };
 
@@ -179,9 +263,56 @@ export default function TeamOrganizerView() {
     await handleSave(teamKey, shiftKey, clearedShift);
   };
 
+  if (loading) {
+    return (
+      <div className="team-organizer-container">
+        <h2>Team Organizer</h2>
+        <div>Loading teams and responders...</div>
+        {currentUser && (
+          <div style={{ fontSize: '0.9rem', color: '#666', marginTop: '10px' }}>
+            Logged in as: {currentUser.fullName || currentUser.email} ({currentUser.role})
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="team-organizer-container">
+        <h2>Team Organizer</h2>
+        <div style={{ color: 'red', padding: '20px', border: '1px solid red', borderRadius: '5px' }}>
+          <strong>Error loading data:</strong> {error}
+          <br />
+          <br />
+          <strong>Troubleshooting:</strong>
+          <ul>
+            <li>Check if you're logged in with the correct account</li>
+            <li>Verify your role is 'admin' or 'dispatcher' in the database</li>
+            <li>Check Firestore security rules allow your role to read the collections</li>
+            <li>Check browser console for more detailed error messages</li>
+          </ul>
+          {currentUser && (
+            <div style={{ marginTop: '10px', fontSize: '0.9rem' }}>
+              Current user: {currentUser.fullName || currentUser.email} (Role: {currentUser.role})
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="team-organizer-container">
       <h2>Team Organizer</h2>
+      
+      {currentUser && (
+        <div style={{ fontSize: '0.9rem', color: '#666', marginBottom: '20px' }}>
+          Logged in as: {currentUser.fullName || currentUser.email} ({currentUser.role}) | 
+          Responders loaded: {responders.length}
+        </div>
+      )}
+
       <div className="teams-container">
         {teamsKeys.map(teamKey => (
           <div key={teamKey} className="team-section">
@@ -211,28 +342,16 @@ export default function TeamOrganizerView() {
                         {shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}
                       </strong>
                       {isActive && (
-                        <span
-                          style={{
-                            color: '#6c8c44',
-                            fontWeight: 600,
-                            fontSize: '0.9rem',
-                          }}
-                        >
+                        <span style={{ color: '#6c8c44', fontWeight: 600, fontSize: '0.9rem' }}>
                           (Active)
                         </span>
                       )}
                     </div>
                     <div className="deck-actions">
-                      <button
-                        className="edit-button"
-                        onClick={() => handleEdit(teamKey, shiftKey)}
-                      >
+                      <button className="edit-button" onClick={() => handleEdit(teamKey, shiftKey)}>
                         ✏️ Edit
                       </button>
-                      <button
-                        className="clear-button"
-                        onClick={() => clearShift(teamKey, shiftKey)}
-                      >
+                      <button className="clear-button" onClick={() => clearShift(teamKey, shiftKey)}>
                         🗑️ Clear
                       </button>
                     </div>
@@ -257,11 +376,7 @@ export default function TeamOrganizerView() {
                             <i className={iconMap[roleKey]}></i>
                             <span className="role-label">{label}</span>
                           </div>
-                          <span
-                            className={
-                              user?.fullName ? 'role-name' : 'unassigned'
-                            }
-                          >
+                          <span className={user?.fullName ? 'role-name' : 'unassigned'}>
                             {user?.fullName || 'Not assigned'}
                           </span>
                         </div>
@@ -270,10 +385,7 @@ export default function TeamOrganizerView() {
                   </div>
 
                   {shift.createdAt && (
-                    <div
-                      className="deck-timestamp"
-                      style={{ marginTop: 10 }}
-                    >
+                    <div className="deck-timestamp" style={{ marginTop: 10 }}>
                       Created: {new Date(shift.createdAt).toLocaleString()}
                     </div>
                   )}
@@ -288,22 +400,16 @@ export default function TeamOrganizerView() {
         <TeamEditorModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
-          teamDate={selectedTeamKey}
+          teamDate={selectedTeamKey} // Keep for backward compatibility
           currentTeam={teams[selectedTeamKey][selectedShiftKey]}
-          responders={responders.filter(
-            r =>
-              !Object.values(teams[selectedTeamKey][selectedShiftKey]).some(
-                val => val?.uid === r.uid
-              )
-          )}
-          onSave={(teamKey, data) => {
-            handleSave(teamKey, selectedShiftKey, data);
+          responders={responders}
+          onSave={(teamKey, shiftKey, data) => {
+            handleSave(teamKey, shiftKey, data);
             setIsModalOpen(false);
           }}
           teams={teams}
           selectedTeamKey={selectedTeamKey}
-          selectedDeckIndex={null}
-          decks={[]}
+          selectedShiftKey={selectedShiftKey} // Add this prop
         />
       )}
     </div>
