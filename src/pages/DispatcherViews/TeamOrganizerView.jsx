@@ -316,7 +316,7 @@ export default function TeamOrganizerView() {
       <div className="teams-container">
         {teamsKeys.map(teamKey => (
           <div key={teamKey} className="team-section">
-            <h3>{`Team ${teamKey.toUpperCase()}`}</h3>
+            <h3>{`Team ${teamKey.charAt(0).toUpperCase()}${teamKey.slice(1)}`}</h3>
             {shifts.map(shiftKey => {
               const shift = teams[teamKey][shiftKey];
               if (!shift) return null;
@@ -339,7 +339,7 @@ export default function TeamOrganizerView() {
                   <div className="deck-header">
                     <div className="deck-title-group">
                       <strong>
-                        {shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}
+                        {shiftKey === 'dayShift' ? 'Day Shift ☀️' : 'Night Shift 🌙'}
                       </strong>
                       {isActive && (
                         <span style={{ color: '#6c8c44', fontWeight: 600, fontSize: '0.9rem' }}>

@@ -17,6 +17,7 @@ import { emergencySeverityMap } from '../constants/dispatchConstants';
 import { useNavigate } from 'react-router-dom';
 
 export default function DispatcherPage() {
+  const [userName, setUserName] = useState('');
   const navigate = useNavigate();
   const [activeView, setActiveView] = useState('map-view');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -54,7 +55,7 @@ export default function DispatcherPage() {
   const [toasts, setToasts] = useState([]);
 
   const showToast = (text) => {
-    const id = `toast-${Date.now()}`;
+    const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     setToasts(prev => [...prev, { id, text }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
@@ -199,6 +200,26 @@ export default function DispatcherPage() {
     };
     checkRole();
   }, [db]);
+
+  useEffect(() => {
+    const auth = getAuth();
+    const checkUserProfile = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      try {
+        const userDoc = await getDoc(doc(db, "mdrrmo-users", user.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          console.log("✅ User profile:", data);
+          setUserName(data.fullName || user.displayName || "Dispatcher");
+        }
+      } catch (error) {
+        console.error("🔥 Error fetching user profile:", error.message);
+      }
+    };
+    checkUserProfile();
+  }, [db]);
+
 
   // Close context menu when clicking elsewhere
   useEffect(() => {
@@ -349,43 +370,27 @@ export default function DispatcherPage() {
     return date.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
   };
 
+  // This function will handle the new data from the modal
   const handleReportCreated = (newReport) => {
-    // Check if newReport is a valid object before proceeding
-    if (!newReport || typeof newReport !== 'object') {
-      console.error('handleReportCreated received an invalid report object:', newReport);
-      return;
+    if (newReport && newReport.id) {
+      setReportLogs(prevLogs => {
+        // Check if we are editing an existing report
+        const existingIndex = prevLogs.findIndex(log => log.id === newReport.id);
+        if (existingIndex > -1) {
+          // Update the existing report in the log
+          const updatedLogs = [...prevLogs];
+          updatedLogs[existingIndex] = newReport;
+          return updatedLogs;
+        } else {
+          // Add a new report to the log
+          return [...prevLogs, newReport];
+        }
+      });
+      showToast(`✅ Report ${newReport.id} saved successfully!`);
+    } else {
+      console.error("handleReportCreated received an invalid report object:", newReport);
+      showToast("❌ An error occurred while saving the report.");
     }
-
-    const normalizedReport = {
-      ...newReport,
-      reportId: newReport.reportId || newReport.id,
-      id: newReport.id || `RPT-${new Date().getFullYear()}-${reportLogs.length + 1}`,
-      reporter: newReport.reporterName || newReport.reporter,
-      contact: newReport.contactNumber || newReport.contact,
-      timestamp: newReport.timestamp || new Date().toISOString(),
-      status: newReport.status || 'pending',
-      location: typeof newReport.location === 'string' ? JSON.parse(newReport.location) : newReport.location || { lat: 0, lng: 0 },
-    };
-
-    setReportLogs(prevLogs => {
-      const updatedLogs = [...prevLogs, normalizedReport];
-      // Note: As per best practices, consider using a persistent database
-      // like Firestore instead of localStorage/sessionStorage for real-world applications.
-      const logsToSave = updatedLogs.map(r => ({
-        ...r,
-        location: JSON.stringify(r.location)
-      }));
-      localStorage.setItem('reportLogs', JSON.stringify(logsToSave));
-
-      const currentData = JSON.parse(sessionStorage.getItem('dispatcherData') || '{}');
-      sessionStorage.setItem('dispatcherData', JSON.stringify({
-        ...currentData,
-        reportLogs: logsToSave,
-        timestamp: Date.now()
-      }));
-
-      return updatedLogs;
-    });
   };
   
   // Firestore realtime fetch report logs
@@ -578,7 +583,7 @@ export default function DispatcherPage() {
   ];
 
   const viewConfig = {
-    'map-view': <LiveMapView mapRef={mapRef} notifications={notifications} reportLogs={reportLogs} />,
+    'map-view': <LiveMapView mapRef={mapRef} notifications={notifications} reportLogs={reportLogs} teams={teams} />,
     'notifications-view': <NotificationsView
       notifications={notifications}
       dispatchTeam={dispatchTeam}
@@ -602,7 +607,13 @@ export default function DispatcherPage() {
           <div className="menu-toggle" onClick={toggleSidebar}><i className="fas fa-bars" /></div>
           <img src={Logo} alt="Victoria Rescue Logo" className="logo-small" />
           <div className="user-menu">
-            <button id="logout-btn" onClick={handleLogoutClick}><i className="fas fa-sign-out-alt" /> Logout</button>
+            <span className="user-name">
+              <i className="fas fa-user-circle" style={{ marginRight: '6px' }} />
+              {userName}
+            </span>
+            <button id="logout-btn" onClick={handleLogoutClick}>
+              <i className="fas fa-sign-out-alt" /> Logout
+            </button>
           </div>
         </div>
 

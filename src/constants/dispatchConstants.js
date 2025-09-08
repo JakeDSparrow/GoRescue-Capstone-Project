@@ -168,6 +168,10 @@ export const statusMap = {
     color: '#f39c12',
     label: 'Pending',
   },
+  acknowledged: {
+    color: '#606cac',
+    label: 'Acknowledged'
+  },
   'in-progress': {
     color: '#3498db',
     label: 'In Progress',

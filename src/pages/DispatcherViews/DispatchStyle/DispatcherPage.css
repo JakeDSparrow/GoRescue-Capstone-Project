@@ -67,6 +67,17 @@
   z-index: 100;
 }
 
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-name {
+  font-weight: 500;
+  color: #2c3e50;
+}
+
 .notification-badge-sidebar {
   background-color: red;
   color: white;
@@ -1001,6 +1012,47 @@
   margin-bottom: 2rem;
 }
 
+/* Filter Buttons */
+.dispatcher-page .filter-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.dispatcher-page .filter-buttons button {
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  color: #374151;
+  padding: 0.5rem 0.9rem;
+  border-radius: 9999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+}
+
+.dispatcher-page .filter-buttons button:hover {
+  background-color: #f9fafb;
+  border-color: #d1d5db;
+}
+
+.dispatcher-page .filter-buttons button.active {
+  background-color: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+@media (max-width: 768px) {
+  .dispatcher-page .filter-buttons {
+    gap: 0.4rem;
+  }
+  .dispatcher-page .filter-buttons button {
+    font-size: 0.8rem;
+    padding: 0.45rem 0.8rem;
+  }
+}
+
 .dispatcher-page .stat-card {
   background-color: white;
   padding: 1.5rem;
@@ -1107,7 +1159,7 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem; /* add a bit more breathing room below header */
 }
 
 .dispatcher-page .team-card-header h3 {
@@ -1115,6 +1167,37 @@
   font-weight: 700;
   color: #111827;
   margin: 0;
+}
+
+/* Responder status pill in team header */
+.dispatcher-page .responder-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+.dispatcher-page .responder-status i {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+.dispatcher-page .responder-status.status-success {
+  background-color: #ecfdf5;
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+.dispatcher-page .responder-status.status-warning {
+  background-color: #fffbeb;
+  color: #92400e;
+  border-color: #fde68a;
+}
+.dispatcher-page .responder-status.status-danger {
+  background-color: #fef2f2;
+  color: #991b1b;
+  border-color: #fecaca;
 }
 
 .dispatcher-page .team-badges {
@@ -1308,6 +1391,23 @@
   color: #dc2626;
 }
 
+/* Type badge for MISSION/REPORT */
+.dispatcher-page .type-badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.dispatcher-page .type-badge.type-mission {
+  background-color: #eef2ff;
+  color: #3730a3;
+}
+.dispatcher-page .type-badge.type-report {
+  background-color: #ecfeff;
+  color: #155e75;
+}
+
 .dispatcher-page .mission-time {
   display: flex;
   align-items: center;
@@ -1400,6 +1500,20 @@
 
 .dispatcher-page .status-badge.status-completed {
   background-color: #d1fae5;
+  color: #16a34a;
+}
+
+/* Additional status variants used in app */
+.dispatcher-page .status-badge.status-acknowledged {
+  background-color: #e0e7ff;
+  color: #4f46e5;
+}
+.dispatcher-page .status-badge.status-responding {
+  background-color: #ede9fe;
+  color: #7c3aed;
+}
+.dispatcher-page .status-badge.status-resolved {
+  background-color: #dcfce7;
   color: #16a34a;
 }
 

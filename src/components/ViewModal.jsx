@@ -1,7 +1,6 @@
 import React from 'react';
-import { emergencySeverityMap } from '../constants/dispatchConstants';
+import { emergencySeverityMap, emergencyTypeMap } from '../constants/dispatchConstants';
 import './modalstyles/ViewModalStyles.css';
-import { emergencyTypeMap } from './CreateReportModal';
 
 function formatRespondingTeam(teamKey) {
   if (!teamKey) return 'N/A';

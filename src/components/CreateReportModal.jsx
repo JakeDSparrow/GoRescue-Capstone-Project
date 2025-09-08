@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   getFirestore,
   collection,
@@ -21,153 +21,48 @@ import {
   SEVERITY_CODES,
   convertLegacyToNewType,
   convertLegacySeverity,
-  victoriaBarangayData,
-  victoriaLandmarks
 } from '../constants/dispatchConstants';
 
 export { emergencySeverityMap, emergencyTypeMap };
 
 const ROLE_KEYS = ['teamLeader', 'emt1', 'emt2', 'ambulanceDriver'];
 
-const findSingleLocationCoords = async (locationText, barangayData, landmarkData) => {
-  const normalizedText = locationText.toLowerCase().trim();
-  let bestMatch = null;
-  let highestScore = 0;
-
-  // --- Landmark Matching with Scoring ---
-  if (landmarkData && Array.isArray(landmarkData)) {
-    for (const landmark of landmarkData) {
-      const landmarkName = landmark.name.toLowerCase();
-      let currentScore = 0;
-
-      // 1. Perfect Match (highest score)
-      if (normalizedText.includes(landmarkName)) {
-        currentScore = 100; // Give a very high score for a full name match
-      }
-      // 2. Partial Keyword Match (lower score)
-      else {
-        const keywords = landmarkName.split(' ').filter(word => 
-          word.length > 3 && !['the', 'and', 'of', 'in', 'at', 'for', 'with'].includes(word)
-        );
-        
-        let matchedKeywords = 0;
-        for (const keyword of keywords) {
-          if (normalizedText.includes(keyword)) {
-            matchedKeywords++;
-          }
-        }
-        
-        // Score based on the percentage of matched keywords
-        if (keywords.length > 0) {
-          currentScore = (matchedKeywords / keywords.length) * 10;
-        }
-      }
-
-      // If this landmark has a better score than the previous best, update it
-      if (currentScore > highestScore) {
-        highestScore = currentScore;
-        bestMatch = {
-          lat: landmark.latitude,
-          lng: landmark.longitude,
-          precision: currentScore === 100 ? 'exact-landmark' : 'landmark-partial',
-          matchedLocation: `${landmark.name} ${landmark.barangay ? `(${landmark.barangay})` : ''}`
-        };
-      }
-    }
-  }
-
-  // If we found a good landmark match, return it.
-  // The threshold (e.g., > 1) prevents very weak matches.
-  if (bestMatch && highestScore > 1) {
-    return bestMatch;
-  }
-
-  // --- Barangay Matching (Fallback) ---
-  if (barangayData && Array.isArray(barangayData)) {
-    for (const barangay of barangayData) {
-      const barangayName = barangay.barangay.toLowerCase();
-      
-      if (normalizedText.includes(barangayName) || 
-          normalizedText.includes(`brgy ${barangayName}`) ||
-          normalizedText.includes(`barangay ${barangayName}`)) {
-        // Return immediately as barangay match is a clear fallback
-        return { 
-          lat: barangay.latitude, 
-          lng: barangay.longitude,
-          precision: 'barangay',
-          matchedLocation: `Barangay ${barangay.barangay}`
-        };
-      }
-    }
-  }
-
-  return null; // Return null if no suitable match is found
-};
-
-const geocodeLocation = async (locationText) => {
-  if (!locationText || typeof locationText !== 'string') {
-    return null;
-  }
-
-  const normalizedText = locationText.toLowerCase().trim();
-  const barangayData = victoriaBarangayData || [];
-  const landmarkData = victoriaLandmarks || [];
-
-  try {
-    // Handle "between X and Y" queries
-    const betweenMatch = normalizedText.match(/(?:between|in between)\s+(.+?)\s+and\s+(.+)/);
-    if (betweenMatch) {
-      const loc1 = betweenMatch[1].trim();
-      const loc2 = betweenMatch[2].trim();
-      
-      const coords1 = await findSingleLocationCoords(loc1, barangayData, landmarkData);
-      const coords2 = await findSingleLocationCoords(loc2, barangayData, landmarkData);
-      
-      if (coords1 && coords2) {
-        const midpointLat = (coords1.lat + coords2.lat) / 2;
-        const midpointLng = (coords1.lng + coords2.lng) / 2;
-        return {
-          lat: midpointLat,
-          lng: midpointLng,
-          precision: 'between',
-          matchedLocation: `Between ${coords1.matchedLocation} and ${coords2.matchedLocation}`
-        };
-      }
-      return coords1 || coords2;
+// Google Maps geocoding function
+const geocodeWithGoogleMaps = async (locationText) => {
+  return new Promise((resolve, reject) => {
+    if (!window.google || !window.google.maps) {
+      reject(new Error('Google Maps API not loaded'));
+      return;
     }
 
-    // Handle "near X" queries with offset
-    const nearMatch = normalizedText.match(/^near\s+(.+)/);
-    if (nearMatch) {
-      const targetLocation = nearMatch[1].trim();
-      const baseCoords = await findSingleLocationCoords(targetLocation, barangayData, landmarkData);
-      if (baseCoords) {
-        const offsetLat = (Math.random() - 0.5) * 0.001;
-        const offsetLng = (Math.random() - 0.5) * 0.001;
-        return {
-          lat: baseCoords.lat + offsetLat,
-          lng: baseCoords.lng + offsetLng,
-          precision: 'near',
-          matchedLocation: `Near ${baseCoords.matchedLocation}`
-        };
-      }
-      return null;
-    }
-
-    // Handle "at X" or "in X" queries - exact location
-    const atInMatch = normalizedText.match(/^(?:at|in)\s+(.+)/);
-    if (atInMatch) {
-      const targetLocation = atInMatch[1].trim();
-      return await findSingleLocationCoords(targetLocation, barangayData, landmarkData);
-    }
-
-    // Handle direct location queries
-    return await findSingleLocationCoords(normalizedText, barangayData, landmarkData);
+    const geocoder = new window.google.maps.Geocoder();
     
-  } catch (error) {
-    console.error('Error in geocodeLocation:', error);
-    return null;
-  }
+    geocoder.geocode(
+      { 
+        address: locationText,
+        region: 'PH', // Bias results to Philippines
+        componentRestrictions: {
+          country: 'PH'
+        }
+      },
+      (results, status) => {
+        if (status === 'OK' && results && results.length > 0) {
+          const result = results[0];
+          const location = result.geometry.location;
+          
+          resolve({
+            lat: location.lat(),
+            lng: location.lng(),
+            precision: 'google-geocoded',
+            matchedLocation: result.formatted_address,
+            placeId: result.place_id
+          });
+        } else {
+          reject(new Error(`Geocoding failed: ${status}`));
+        }
+      }
+    );
+  });
 };
 
 const parseLocation = (locationObj) => {
@@ -222,6 +117,155 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
   const [calculatedCoords, setCalculatedCoords] = useState(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [isCodeManuallyTyped, setIsCodeManuallyTyped] = useState(false);
+  const [mapCenter, setMapCenter] = useState({ lat: 16.2304, lng: 120.4822 }); // Victoria, Tarlac
+  const [selectedPlace, setSelectedPlace] = useState(null);
+  
+  // Refs for Google Maps components
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerRef = useRef(null);
+  const autocompleteRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  // Initialize Google Maps
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const initializeMap = () => {
+      if (!window.google || !window.google.maps) {
+        console.error('Google Maps API not loaded');
+        return;
+      }
+
+      // Initialize map
+      if (mapRef.current && !mapInstanceRef.current) {
+        mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
+          center: mapCenter,
+          zoom: 13,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+        });
+
+        // Add click listener to map
+        mapInstanceRef.current.addListener('click', (event) => {
+          const lat = event.latLng.lat();
+          const lng = event.latLng.lng();
+          
+          updateMarker(lat, lng);
+          reverseGeocode(lat, lng);
+        });
+      }
+
+      // Initialize Places Autocomplete
+      if (searchInputRef.current && !autocompleteRef.current) {
+        autocompleteRef.current = new window.google.maps.places.Autocomplete(
+          searchInputRef.current,
+          {
+            componentRestrictions: { country: 'PH' },
+            fields: ['place_id', 'geometry', 'name', 'formatted_address'],
+            types: ['establishment', 'geocode']
+          }
+        );
+
+        autocompleteRef.current.addListener('place_changed', () => {
+          const place = autocompleteRef.current.getPlace();
+          
+          if (place.geometry && place.geometry.location) {
+            const lat = place.geometry.location.lat();
+            const lng = place.geometry.location.lng();
+            
+            setSelectedPlace(place);
+            setForm(prev => ({ ...prev, location: place.formatted_address || place.name }));
+            setCalculatedCoords({
+              lat,
+              lng,
+              precision: 'google-places',
+              matchedLocation: place.formatted_address || place.name,
+              placeId: place.place_id
+            });
+            
+            updateMarker(lat, lng);
+            mapInstanceRef.current.panTo({ lat, lng });
+            mapInstanceRef.current.setZoom(16);
+            
+            setStatusMessage('✅ Location selected from search');
+          }
+        });
+      }
+    };
+
+    // Check if Google Maps is already loaded
+    if (window.google && window.google.maps) {
+      initializeMap();
+    } else {
+      // Wait for Google Maps to load
+      const checkGoogleMaps = setInterval(() => {
+        if (window.google && window.google.maps) {
+          clearInterval(checkGoogleMaps);
+          initializeMap();
+        }
+      }, 100);
+
+      return () => clearInterval(checkGoogleMaps);
+    }
+  }, [isOpen, mapCenter]);
+
+  const updateMarker = (lat, lng) => {
+    if (!mapInstanceRef.current) return;
+
+    if (markerRef.current) {
+      markerRef.current.setMap(null);
+    }
+
+    markerRef.current = new window.google.maps.Marker({
+      position: { lat, lng },
+      map: mapInstanceRef.current,
+      title: 'Emergency Location',
+      animation: window.google.maps.Animation.DROP,
+    });
+
+    setCalculatedCoords({
+      lat,
+      lng,
+      precision: 'user-selected',
+      matchedLocation: `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+    });
+  };
+
+  const reverseGeocode = async (lat, lng) => {
+    if (!window.google || !window.google.maps) return;
+
+    const geocoder = new window.google.maps.Geocoder();
+    
+    try {
+      const results = await new Promise((resolve, reject) => {
+        geocoder.geocode(
+          { location: { lat, lng } },
+          (results, status) => {
+            if (status === 'OK' && results && results.length > 0) {
+              resolve(results);
+            } else {
+              reject(new Error(`Reverse geocoding failed: ${status}`));
+            }
+          }
+        );
+      });
+
+      const address = results[0].formatted_address;
+      setForm(prev => ({ ...prev, location: address }));
+      setCalculatedCoords(prev => ({
+        ...prev,
+        matchedLocation: address,
+        placeId: results[0].place_id
+      }));
+      setStatusMessage('✅ Address found for selected location');
+      
+    } catch (error) {
+      console.error('Reverse geocoding error:', error);
+      setForm(prev => ({ ...prev, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
+    }
+  };
 
   // Populate form if editing
   useEffect(() => {
@@ -262,11 +306,25 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         const coords = parseLocation(reportToEdit.location);
         if (coords) {
           setCalculatedCoords(coords);
+          setMapCenter(coords);
+          // Update map and marker when editing
+          setTimeout(() => {
+            if (mapInstanceRef.current) {
+              mapInstanceRef.current.panTo(coords);
+              mapInstanceRef.current.setZoom(16);
+              updateMarker(coords.lat, coords.lng);
+            }
+          }, 100);
         }
       }
     } else {
       setForm(initialFormState);
       setCalculatedCoords(null);
+      setSelectedPlace(null);
+      if (markerRef.current) {
+        markerRef.current.setMap(null);
+        markerRef.current = null;
+      }
     }
     setStatusMessage('');
     setIsCodeManuallyTyped(false);
@@ -302,7 +360,29 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           where('role', '==', 'responder')
         );
         const respondersSnapshot = await getDocs(respondersQuery);
-        setAllResponders(respondersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() })));
+        setAllResponders(
+          respondersSnapshot.docs
+            .map(doc => ({ uid: doc.id, ...doc.data() }))
+            .filter(m => {
+              if (!m) return false;
+
+              // Normalize status casing
+              const status = (m.status || '').toLowerCase();
+
+              // Check shift times if they exist
+              const now = new Date();
+              const shiftStart = m.shiftStart ? new Date(m.shiftStart) : null;
+              const shiftEnd = m.shiftEnd ? new Date(m.shiftEnd) : null;
+
+              const withinShift =
+                shiftStart && shiftEnd
+                  ? now >= shiftStart && now <= shiftEnd
+                  : true; // if no shift info, keep them
+
+              return (status === 'active' || status === 'available') && withinShift;
+            })
+ // ✅ only responders on duty
+        );
       } catch (err) {
         console.error('Failed to fetch teams or responders:', err);
         setStatusMessage('Error loading teams data. Please refresh and try again.');
@@ -364,13 +444,17 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
       setForm(prev => ({ ...prev, emergencySubtype: '' }));
     }
 
-    // Clear coordinates when location changes
-    if (name === 'location') {
+    // Clear coordinates when location changes manually
+    if (name === 'location' && !selectedPlace) {
       setCalculatedCoords(null);
+      if (markerRef.current) {
+        markerRef.current.setMap(null);
+        markerRef.current = null;
+      }
     }
   };
 
-  // Manual geocoding button - ONLY manual now
+  // Manual geocoding with Google Maps
   const handleManualGeocode = async () => {
     if (!form.location.trim()) {
       setStatusMessage('⚠️ Please enter a location first');
@@ -378,20 +462,26 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
     }
     
     setLoading(true);
+    setStatusMessage('🔍 Searching location...');
     
     try {
-      const coords = await geocodeLocation(form.location.trim());
+      const coords = await geocodeWithGoogleMaps(form.location.trim());
       if (coords) {
         setCalculatedCoords(coords);
+        setMapCenter({ lat: coords.lat, lng: coords.lng });
         setStatusMessage(`✅ Location found: ${coords.matchedLocation}`);
-      } else {
-        setCalculatedCoords(null);
-        setStatusMessage('❌ Location not recognized. Try landmark names, barangay names, or common locations.');
+        
+        // Update map view and add marker
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.panTo({ lat: coords.lat, lng: coords.lng });
+          mapInstanceRef.current.setZoom(16);
+          updateMarker(coords.lat, coords.lng);
+        }
       }
     } catch (error) {
       console.error('Manual geocoding error:', error);
       setCalculatedCoords(null);
-      setStatusMessage('❌ Error calculating coordinates.');
+      setStatusMessage('❌ Location not found. Try searching with a more specific address.');
     } finally {
       setLoading(false);
     }
@@ -406,7 +496,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
     }
 
     if (!calculatedCoords) {
-      setStatusMessage('❌ Please calculate coordinates for the location first using the map button.');
+      setStatusMessage('❌ Please select a location on the map or search for a location first.');
       return;
     }
 
@@ -430,7 +520,26 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         }
         teamData = {
           teamName: `${teamKey?.toUpperCase()} - ${shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}`,
-          members: ROLE_KEYS.map(role => teamDetails?.[role]).filter(m => m),
+          members: ROLE_KEYS
+            .map(role => teamDetails?.[role])
+            .filter(m => {
+              if (!m) return false;
+
+              // Normalize status casing
+              const status = (m.status || '').toLowerCase();
+
+              // Check shift times if they exist
+              const now = new Date();
+              const shiftStart = m.shiftStart ? new Date(m.shiftStart) : null;
+              const shiftEnd = m.shiftEnd ? new Date(m.shiftEnd) : null;
+
+              const withinShift =
+                shiftStart && shiftEnd
+                  ? now >= shiftStart && now <= shiftEnd
+                  : true; // if no shift info, keep them
+
+              return (status === 'active' || status === 'available') && withinShift;
+            }) // ✅ only active/available
         };
       }
 
@@ -450,6 +559,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         locationText: form.location,
         locationPrecision: calculatedCoords.precision || 'unknown',
         matchedLocation: calculatedCoords.matchedLocation || form.location,
+        placeId: calculatedCoords.placeId || null,
         notes: form.notes || '',
         status: reportToEdit?.status || 'Pending',
         timestamp: serverTimestamp(),
@@ -539,6 +649,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
               <label htmlFor="location">Location *</label>
               <div className="location-input-container">
                 <input
+                  ref={searchInputRef}
                   id="location"
                   type="text"
                   name="location"
@@ -546,7 +657,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
                   onChange={handleChange}
                   required
                   disabled={isEditing || loading}
-                  placeholder="e.g., 'Victoria Public Market', 'Canarem Lake', 'Barangay Bulo'"
+                  placeholder="Search for places, addresses, or landmarks..."
                   className="location-input"
                 />
                 <button
@@ -554,10 +665,10 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
                   className="geocode-button"
                   onClick={handleManualGeocode}
                   disabled={loading || !form.location.trim() || isEditing}
-                  title="Calculate coordinates for this location"
-                  aria-label="Calculate coordinates"
+                  title="Search for this location"
+                  aria-label="Search location"
                 >
-                  <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-map-marker-alt'}`}></i>
+                  <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-search'}`}></i>
                 </button>
               </div>
               
@@ -567,7 +678,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
                     ✅ <strong>{calculatedCoords.matchedLocation}</strong>
                   </span>
                   <span className="coords-values">
-                    ({calculatedCoords.lat.toFixed(4)}, {calculatedCoords.lng.toFixed(4)})
+                    ({calculatedCoords.lat.toFixed(6)}, {calculatedCoords.lng.toFixed(6)})
                   </span>
                 </div>
               )}
@@ -612,7 +723,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
               </div>
 
               <div className="form-group">
-                <label htmlFor="casualtyCode"> Casualty *</label>
+                <label htmlFor="casualtyCode">Casualty *</label>
                 <select 
                   id="casualtyCode"
                   name="casualtyCode" 
@@ -647,7 +758,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
             </div>
 
             <div className="form-group">
-              <label htmlFor="incidentCode"></label>
+              <label htmlFor="incidentCode">Incident Code *</label>
               <input 
                 id="incidentCode"
                 type="text" 
@@ -718,7 +829,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
                 type="submit" 
                 className="create-submit-btn"
                 disabled={loading || !calculatedCoords}
-                title={!calculatedCoords ? "Please calculate coordinates first using the map button" : ""}
+                title={!calculatedCoords ? "Please select a location on the map or search for a location first" : ""}
               >
                 {loading ? (
                   <>

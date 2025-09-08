@@ -1,6 +1,6 @@
 // src/components/DispatcherViews/TeamStatusView.jsx
 import React, { useState, useEffect } from "react";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, onSnapshot, orderBy } from "firebase/firestore";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { db, auth } from "../../firebase";
 
@@ -12,12 +12,66 @@ const roleDisplayNames = {
   ambulanceDriver: "Ambulance Driver",
 };
 
+// Helper to determine responder status based on active missions
+const getResponderStatus = (missions) => {
+  const activeMissions = missions.filter((m) => m.status !== "completed");
+  const inProgressMissions = missions.filter((m) => m.status === "in-progress");
+
+  if (inProgressMissions.length > 0) {
+    return { status: "responding", label: "Responding", color: "danger" };
+  } else if (activeMissions.length > 0) {
+    return { status: "dispatched", label: "Dispatched", color: "warning" };
+  } else {
+    return { status: "available", label: "Available", color: "success" };
+  }
+};
+
 const TeamStatusView = () => {
   const [teamStatuses, setTeamStatuses] = useState([]);
+  const [reportLogs, setReportLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedTeams, setExpandedTeams] = useState(new Set());
   const [userId, setUserId] = useState(null);
   const [teamsData, setTeamsData] = useState(null);
+  const [filter, setFilter] = useState("all"); // all, available, dispatched, responding
+
+  // Normalize various team key formats to match Firestore team doc ids
+  const normalizeTeamId = (raw) => {
+    if (!raw || typeof raw !== "string") return null;
+    let value = raw.trim();
+
+    // Remove leading label variants like "Team Alpha" -> "alpha"
+    value = value.replace(/^team\s+/i, "");
+
+    // Strip appended descriptors like " - Critical" or other suffixes
+    value = value.replace(/\s-\s.*$/, "");
+
+    // Lowercase and remove extra spaces
+    value = value.toLowerCase().replace(/\s+/g, "");
+
+    // Handle All Responders variants
+    if (value.replace(/\s+/g, "-") === "all-responders") {
+      return "all-responders";
+    }
+
+    // Unify shift casing and separators
+    value = value
+      .replace("dayshift", "-dayshift")
+      .replace("nightshift", "-nightshift")
+      .replace("--", "-");
+
+    // Fix common camelCase inputs like dayShift/nightShift
+    value = value
+      .replace("dayshift", "dayshift")
+      .replace("nightshift", "nightshift");
+
+    // Ensure single hyphen between team and shift (e.g., alpha-dayshift)
+    if (!value.includes("-dayshift") && !value.includes("-nightshift")) {
+      // nothing to do; may be a team id without shift
+    }
+
+    return value;
+  };
 
   // Firebase anonymous auth
   useEffect(() => {
@@ -46,11 +100,29 @@ const TeamStatusView = () => {
       (snapshot) => {
         const teams = {};
         snapshot.forEach((doc) => {
-          teams[doc.id] = {
-            id: doc.id,
-            name: doc.id.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase()),
+          const originalId = doc.id;
+          const normalizedId = normalizeTeamId(originalId) || originalId;
+          const [teamBaseRaw] = originalId.split("-");
+          const teamBase = teamBaseRaw
+            ? teamBaseRaw.charAt(0).toUpperCase() + teamBaseRaw.slice(1)
+            : originalId;
+
+          // Add ☀️ for day shift, 🌙 for night shift based on original id
+          const lowerId = originalId.toLowerCase();
+          const shiftIcon = lowerId.includes("dayshift")
+            ? "☀️"
+            : lowerId.includes("nightshift")
+            ? "🌙"
+            : "";
+
+          const displayName = `Team ${teamBase} ${shiftIcon}`.trim();
+
+          teams[normalizedId] = {
+            id: normalizedId,
+            name: displayName,
             members: doc.data(),
             missions: [],
+            reports: [],
           };
         });
         setTeamsData(teams);
@@ -64,18 +136,41 @@ const TeamStatusView = () => {
     return () => unsubscribe();
   }, [userId]);
 
+  // Report logs listener
+  useEffect(() => {
+    if (!userId) return;
+
+    const unsubscribe = onSnapshot(
+      query(collection(db, "reportLogs"), orderBy("timestamp", "desc")),
+      (snapshot) => {
+        const logs = [];
+        snapshot.forEach((doc) => {
+          logs.push({
+            id: doc.id,
+            ...doc.data(),
+            timestamp: doc.data().timestamp?.toDate() || new Date(),
+          });
+        });
+        setReportLogs(logs);
+      },
+      (error) => {
+        console.error("Error fetching report logs:", error);
+      }
+    );
+    return () => unsubscribe();
+  }, [userId]);
+
   // Incidents listener
   useEffect(() => {
     if (!teamsData) return;
 
     const unsubscribe = onSnapshot(
-      query(
-        collection(db, "incidents"),
-        where("status", "in", ["pending", "in-progress", "completed"])
-      ),
+      // Include all incidents; we'll normalize/filter in code to avoid case mismatches
+      query(collection(db, "incidents")),
       (snapshot) => {
         const missionsPerTeam = {};
-        Object.keys(teamsData).forEach(id => {
+        const placeholderTeamIds = new Set();
+        Object.keys(teamsData).forEach((id) => {
           missionsPerTeam[id] = [];
         });
 
@@ -84,35 +179,84 @@ const TeamStatusView = () => {
             ...doc.data(),
             id: doc.id,
             timestamp: doc.data().timestamp?.toDate() || new Date(),
+            type: "mission",
           };
+          // Normalize status to lowercase with hyphens
+          if (incident.status && typeof incident.status === "string") {
+            const s = incident.status.toLowerCase().replace(/\s+/g, "-");
+            incident.status = s;
+          }
 
-          const teamId = incident.respondingTeam;
+          const teamIdRaw = incident.respondingTeam || incident.assignedTeam;
+          const teamId = normalizeTeamId(teamIdRaw);
           if (teamId === "all-responders") {
             Object.keys(teamsData).forEach((id) => {
               missionsPerTeam[id].push(incident);
             });
-          } else if (teamId && missionsPerTeam[teamId]) {
+          } else if (teamId) {
+            if (!missionsPerTeam[teamId]) {
+              missionsPerTeam[teamId] = [];
+              placeholderTeamIds.add(teamId);
+            }
             missionsPerTeam[teamId].push(incident);
           }
         });
 
+        // Add report logs (support both assignedTeam and respondingTeam keys)
+        reportLogs.forEach((log) => {
+          const teamKeyRaw = log.assignedTeam || log.respondingTeam;
+          const teamKey = normalizeTeamId(teamKeyRaw);
+          if (teamKey) {
+            if (!missionsPerTeam[teamKey]) {
+              missionsPerTeam[teamKey] = [];
+              placeholderTeamIds.add(teamKey);
+            }
+            missionsPerTeam[teamKey].push({
+              ...log,
+              type: "report",
+              status: log.status || "pending",
+            });
+          }
+        });
+
+        // Sort by timestamp
         Object.keys(missionsPerTeam).forEach((teamId) => {
           missionsPerTeam[teamId].sort(
             (a, b) => b.timestamp.getTime() - a.timestamp.getTime()
           );
         });
 
-        const updatedTeams = Object.values(teamsData).map((team) => ({
+        const baseTeams = Object.values(teamsData).map((team) => ({
           ...team,
           missions: missionsPerTeam[team.id] || [],
-        })).sort((a,b) => a.name.localeCompare(b.name));
-        
+        }));
+
+        // Create placeholder teams for any unknown team ids that received missions/logs
+        const extraTeams = Array.from(placeholderTeamIds).map((id) => {
+          const [teamBaseRaw] = id.split("-");
+          const teamBase = teamBaseRaw
+            ? teamBaseRaw.charAt(0).toUpperCase() + teamBaseRaw.slice(1)
+            : id;
+          const lowerId = id.toLowerCase();
+          const shiftIcon = lowerId.includes("dayshift") ? "☀️" : lowerId.includes("nightshift") ? "🌙" : "";
+          const displayName = `Team ${teamBase} ${shiftIcon}`.trim();
+          return {
+            id,
+            name: displayName,
+            members: {},
+            missions: missionsPerTeam[id] || [],
+            reports: [],
+          };
+        });
+
+        const updatedTeams = [...baseTeams, ...extraTeams].sort((a, b) => a.name.localeCompare(b.name));
+
         setTeamStatuses(updatedTeams);
       },
       (error) => console.error("Error fetching incidents:", error)
     );
     return () => unsubscribe();
-  }, [teamsData]);
+  }, [teamsData, reportLogs]);
 
   const toggleTeamExpansion = (teamId) => {
     setExpandedTeams((prevExpanded) => {
@@ -126,31 +270,82 @@ const TeamStatusView = () => {
     });
   };
 
-  const getPriorityBadge = (priority) => {
-    if (!priority) return null;
-    return (
+  const getPriorityBadge = (priority) =>
+    priority ? (
       <span className={`priority-badge priority-${priority.toLowerCase()}`}>
         {priority.toUpperCase()}
       </span>
-    );
-  };
+    ) : null;
 
-  const getStatusBadge = (status) => {
-    if (!status) return null;
-    return (
+  const getStatusBadge = (status) =>
+    status ? (
       <span className={`status-badge status-${status.replace("-", "")}`}>
         {status.replace("-", " ").toUpperCase()}
       </span>
-    );
-  };
+    ) : null;
 
-  const formatTime = (timestamp) => {
-    if (!timestamp) return "";
-    return new Date(timestamp).toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
+  // Removed unused getTypeBadge helper
+
+  const formatTime = (timestamp) =>
+    timestamp
+      ? new Date(timestamp).toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        })
+      : "";
+
+  const formatDate = (timestamp) =>
+    timestamp
+      ? new Date(timestamp).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        })
+      : "";
+
+  // Filter teams based on status
+  const filteredTeams = teamStatuses.filter((team) => {
+    const responderStatus = getResponderStatus(team.missions);
+
+    switch (filter) {
+      case "available":
+        return responderStatus.status === "available";
+      case "dispatched":
+        return responderStatus.status === "dispatched";
+      case "responding":
+        return responderStatus.status === "responding";
+      default:
+        return true;
+    }
+  });
+
+  const stats = {
+    total: teamStatuses.length,
+    available: teamStatuses.filter(
+      (t) => getResponderStatus(t.missions).status === "available"
+    ).length,
+    dispatched: teamStatuses.filter(
+      (t) => getResponderStatus(t.missions).status === "dispatched"
+    ).length,
+    responding: teamStatuses.filter(
+      (t) => getResponderStatus(t.missions).status === "responding"
+    ).length,
+    totalMissions: teamStatuses.reduce(
+      (total, team) =>
+        total + team.missions.filter((m) => m.status !== "completed").length,
+      0
+    ),
+    completedToday: teamStatuses.reduce(
+      (total, team) =>
+        total +
+        team.missions.filter(
+          (m) =>
+            m.status === "completed" &&
+            m.timestamp &&
+            m.timestamp.toDateString() === new Date().toDateString()
+        ).length,
+      0
+    ),
   };
 
   return (
@@ -162,10 +357,10 @@ const TeamStatusView = () => {
             <div className="header-icon">
               <i className="fas fa-chart-bar"></i>
             </div>
-            <h1>Team Missions Dashboard</h1>
+            <h1>Team Status & Missions Dashboard</h1>
           </div>
           <p className="header-subtitle">
-            Live overview of team missions and statuses
+            Live overview of responder teams, missions, and report assignments
           </p>
         </div>
 
@@ -174,7 +369,7 @@ const TeamStatusView = () => {
           <div className="team-dashboard-loading">
             <div className="loading-content">
               <div className="loading-spinner"></div>
-              <p>Loading team missions...</p>
+              <p>Loading team status...</p>
             </div>
           </div>
         ) : (
@@ -183,110 +378,134 @@ const TeamStatusView = () => {
             <div className="team-stats-grid">
               <div className="stat-card">
                 <div className="stat-card-content">
-                  <div className="stat-icon in-progress">
-                    <i className="fas fa-clock"></i>
-                  </div>
-                  <div className="stat-content">
-                    <div className="stat-number">
-                      {teamStatuses.reduce(
-                        (total, team) =>
-                          total +
-                          team.missions.filter((m) => m.status === "in-progress")
-                            .length,
-                        0
-                      )}
-                    </div>
-                    <div className="stat-label">In Progress</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="stat-card">
-                <div className="stat-card-content">
-                  <div className="stat-icon completed">
+                  <div className="stat-icon available">
                     <i className="fas fa-check-circle"></i>
                   </div>
                   <div className="stat-content">
-                    <div className="stat-number">
-                       {teamStatuses.reduce(
-                        (total, team) =>
-                          total +
-                          team.missions.filter((m) => m.status === "completed")
-                            .length,
-                        0
-                      )}
-                    </div>
-                    <div className="stat-label">Completed</div>
+                    <div className="stat-number">{stats.available}</div>
+                    <div className="stat-label">Available Teams</div>
                   </div>
                 </div>
               </div>
 
               <div className="stat-card">
                 <div className="stat-card-content">
-                  <div className="stat-icon available">
-                    <i className="fas fa-users"></i>
+                  <div className="stat-icon warning">
+                    <i className="fas fa-clock"></i>
                   </div>
                   <div className="stat-content">
-                    <div className="stat-number">
-                      {
-                        teamStatuses.filter(
-                          (team) =>
-                            team.missions.filter((m) => m.status !== "completed")
-                              .length === 0
-                        ).length
-                      }
-                    </div>
-                    <div className="stat-label">Available</div>
+                    <div className="stat-number">{stats.dispatched}</div>
+                    <div className="stat-label">Dispatched</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="stat-card">
+                <div className="stat-card-content">
+                  <div className="stat-icon danger">
+                    <i className="fas fa-ambulance"></i>
+                  </div>
+                  <div className="stat-content">
+                    <div className="stat-number">{stats.responding}</div>
+                    <div className="stat-label">Responding</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="stat-card">
+                <div className="stat-card-content">
+                  <div className="stat-icon info">
+                    <i className="fas fa-tasks"></i>
+                  </div>
+                  <div className="stat-content">
+                    <div className="stat-number">{stats.totalMissions}</div>
+                    <div className="stat-label">Active Missions</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="stat-card">
+                <div className="stat-card-content">
+                  <div className="stat-icon success">
+                    <i className="fas fa-trophy"></i>
+                  </div>
+                  <div className="stat-content">
+                    <div className="stat-number">{stats.completedToday}</div>
+                    <div className="stat-label">Completed Today</div>
                   </div>
                 </div>
               </div>
             </div>
 
+            {/* Filter Buttons */}
+            <div className="filter-buttons">
+              <button
+                className={filter === "all" ? "active" : ""}
+                onClick={() => setFilter("all")}
+              >
+                All Teams ({teamStatuses.length})
+              </button>
+              <button
+                className={filter === "available" ? "active" : ""}
+                onClick={() => setFilter("available")}
+              >
+                Available ({stats.available})
+              </button>
+              <button
+                className={filter === "dispatched" ? "active" : ""}
+                onClick={() => setFilter("dispatched")}
+              >
+                Dispatched ({stats.dispatched})
+              </button>
+              <button
+                className={filter === "responding" ? "active" : ""}
+                onClick={() => setFilter("responding")}
+              >
+                Responding ({stats.responding})
+              </button>
+            </div>
+
             {/* Team Cards Grid */}
             <div className="team-cards-grid">
-              {teamStatuses.map((team) => {
+              {filteredTeams.map((team) => {
                 const isExpanded = expandedTeams.has(team.id);
-                const activeMissionsCount = team.missions.filter(
-                  (m) => m.status !== "completed"
-                ).length;
+                const responderStatus = getResponderStatus(team.missions);
+                const activeMissions = team.missions.filter((m) => m.status !== "completed");
+                const reports = team.missions.filter((m) => m.type === "report");
+                const missions = team.missions.filter((m) => m.type === "mission");
 
                 return (
-                  <div
-                    key={team.id}
-                    className={`team-card ${
-                      activeMissionsCount > 0 ? "has-missions" : "no-missions"
-                    }`}
-                  >
+                  <div key={team.id} className={`team-card status-${responderStatus.status}`}>
                     {/* Card Header */}
                     <div className="team-card-header">
-                      <h3>{team.name}</h3>
+                      <div className="team-title-section">
+                        <h3>{team.name}</h3>
+                        <div className={`responder-status status-${responderStatus.color}`}>
+                          <i
+                            className={`fas ${
+                              responderStatus.status === "available"
+                                ? "fa-check-circle"
+                                : responderStatus.status === "dispatched"
+                                ? "fa-clock"
+                                : "fa-ambulance"
+                            }`}
+                          ></i>
+                          {responderStatus.label}
+                        </div>
+                      </div>
                       <div className="team-badges">
-                         {team.missions.filter((m) => m.status === "in-progress")
-                          .length > 0 && (
+                        {missions.filter((m) => m.status === "in-progress").length > 0 && (
                           <span className="mission-count active">
-                            {
-                              team.missions.filter(
-                                (m) => m.status === "in-progress"
-                              ).length
-                            }{" "}
-                            Active
+                            {missions.filter((m) => m.status === "in-progress").length} Active Missions
                           </span>
                         )}
-                        {team.missions.filter((m) => m.status === "pending")
-                          .length > 0 && (
+                        {missions.filter((m) => m.status === "pending").length > 0 && (
                           <span className="mission-count pending">
-                            {
-                              team.missions.filter(
-                                (m) => m.status === "pending"
-                              ).length
-                            }{" "}
-                            Pending
+                            {missions.filter((m) => m.status === "pending").length} Pending
                           </span>
                         )}
-                        {activeMissionsCount === 0 && (
-                          <span className="mission-count available">
-                            Available
-                          </span>
+                        {reports.length > 0 && (
+                          <span className="mission-count reports">{reports.length} Reports</span>
                         )}
                       </div>
                     </div>
@@ -311,7 +530,7 @@ const TeamStatusView = () => {
                       </div>
                     </div>
 
-                    {/* Missions */}
+                    {/* Missions and Reports */}
                     <div className="team-card-missions">
                       <div
                         className="missions-header"
@@ -319,15 +538,14 @@ const TeamStatusView = () => {
                       >
                         <div className="missions-title">
                           <i className="fas fa-tasks"></i>
-                          <strong>
-                            Missions ({team.missions.length})
-                          </strong>
+                          <strong>Tasks ({team.missions.length})</strong>
+                          <span className="task-breakdown">
+                            {missions.length}M • {reports.length}R
+                          </span>
                         </div>
                         {team.missions.length > 0 && (
                           <i
-                            className={`fas fa-chevron-${
-                              isExpanded ? "up" : "down"
-                            } expand-icon`}
+                            className={`fas fa-chevron-${isExpanded ? "up" : "down"} expand-icon`}
                           ></i>
                         )}
                       </div>
@@ -335,52 +553,56 @@ const TeamStatusView = () => {
                       {team.missions.length === 0 ? (
                         <div className="no-missions">
                           <i className="fas fa-inbox"></i>
-                          <p>No active missions</p>
-                          <p className="sub-text">This team is currently free</p>
+                          <p>No active tasks</p>
+                          <p className="sub-text">This team is available for dispatch</p>
                         </div>
                       ) : (
                         <div className="missions-content">
-                           <div className="missions-list">
-                            {(isExpanded ? team.missions : team.missions.slice(0, 5)).map((mission) => (
-                                <div key={mission.id} className="mission-item">
-                                  <div className="mission-header">
-                                    <div className="mission-id-priority">
-                                      <strong className="mission-id">
-                                        {mission.reportId || mission.id}
-                                      </strong>
-                                      {getPriorityBadge(mission.emergencySeverity)}
-                                    </div>
-                                    <div className="mission-time">
-                                      <i className="fas fa-clock"></i>
-                                      {formatTime(mission.timestamp)}
-                                    </div>
+                          <div className="missions-list">
+                            {(isExpanded ? team.missions : team.missions.slice(0, 5)).map((item) => (
+                              <div key={item.id} className={`mission-item ${item.type}`}>
+                                <div className="mission-header">
+                                  <div className="mission-id-priority">
+                                    <strong className="mission-id">
+                                      {item.reportId || item.incidentId || item.id}
+                                    </strong>
+                                    <span className={`type-badge type-${item.type}`}>
+                                      {item.type === "mission" ? "MISSION" : "REPORT"}
+                                    </span>
+                                    {getPriorityBadge(item.emergencySeverity || item.priority)}
                                   </div>
-
-                                  <div className="mission-location">
-                                    <i className="fas fa-map-marker-alt"></i>
-                                    {mission.locationText || "Location not specified"}
-                                  </div>
-
-                                  {mission.notes && (
-                                    <div className="mission-description">
-                                      {mission.notes}
-                                    </div>
-                                  )}
-
-                                  <div className="mission-status">
-                                    {getStatusBadge(mission.status)}
+                                  <div className="mission-time">
+                                    <i className="fas fa-clock"></i>
+                                    <span className="time">{formatTime(item.timestamp)}</span>
+                                    <span className="date">{formatDate(item.timestamp)}</span>
                                   </div>
                                 </div>
-                              )
-                            )}
+
+                                <div className="mission-location">
+                                  <i className="fas fa-map-marker-alt"></i>
+                                  {item.locationText ||
+                                    item.location ||
+                                    item.address ||
+                                    "Location not specified"}
+                                </div>
+
+                                {item.emergencyType && (
+                                  <div className="mission-description">
+                                    {item.emergencyType}
+                                  </div>
+                                )}
+
+                                <div className="mission-footer">
+                                  {getStatusBadge(item.status)}
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                          
+
                           {team.missions.length > 5 && !isExpanded && (
                             <div className="show-more-button">
-                              <button
-                                onClick={() => toggleTeamExpansion(team.id)}
-                              >
-                                Show {team.missions.length - 5} more missions
+                              <button onClick={() => toggleTeamExpansion(team.id)}>
+                                Show {team.missions.length - 5} more tasks
                               </button>
                             </div>
                           )}
@@ -391,6 +613,14 @@ const TeamStatusView = () => {
                 );
               })}
             </div>
+
+            {filteredTeams.length === 0 && (
+              <div className="no-teams-message">
+                <i className="fas fa-search"></i>
+                <h3>No teams found</h3>
+                <p>No teams match the current filter criteria.</p>
+              </div>
+            )}
           </>
         )}
       </div>

@@ -127,17 +127,23 @@ return (
                   </td>
                   <td>{formatRespondingTeam(log.respondingTeam)}</td>
                   <td>
-                    <span
-                      className="status-badge"
-                      style={{
-                        backgroundColor: statusMap[log.status]?.color || '#ccc',
-                        color: 'white',
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                      }}
-                    >
-                      {statusMap[log.status]?.label || log.status}
-                    </span>
+                    {(() => {
+                      const statusKey = (log.status || '').toLowerCase();
+                      const statusMeta = statusMap[statusKey];
+                      return (
+                        <span
+                          className="status-badge"
+                          style={{
+                            backgroundColor: statusMeta?.color || '#ccc',
+                            color: 'white',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                          }}
+                        >
+                          {statusMeta?.label || log.status || 'N/A'}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td>{log.timestamp ? formatDateTime(log.timestamp) : 'N/A'}</td>
                   <td>

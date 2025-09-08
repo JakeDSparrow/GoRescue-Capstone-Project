@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { emergencyTypeMap } from '../../constants/dispatchConstants';
 
 export default function NotificationsView({ notifications, viewOnMap, dismissNotification }) {
@@ -8,22 +8,48 @@ export default function NotificationsView({ notifications, viewOnMap, dismissNot
     return date.toLocaleString();
   };
 
+  const toLower = (v) => (typeof v === 'string' ? v.toLowerCase() : '');
+  const isCompleted = (n) => {
+    const s = toLower(n.status);
+    const t = toLower(n.type);
+    return s === 'completed' || s === 'resolved' || t === 'completion' || t === 'completed';
+  };
+  const incomingNotifications = (notifications || []).filter((n) => !isCompleted(n));
+  const completedNotifications = (notifications || []).filter(isCompleted);
+  const [filter, setFilter] = useState('all'); // all | incoming | completed
+
+  const filtered =
+    filter === 'incoming' ? incomingNotifications :
+    filter === 'completed' ? completedNotifications :
+    (notifications || []);
+
   return (
     <div className="notifications-container">
       <h2 className="view-title">Emergency Notifications</h2>
 
-      {notifications.length === 0 ? (
+      {/* Filters */}
+      <div className="filter-buttons" style={{ marginTop: 4 }}>
+        <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>
+          All ({(notifications || []).length})
+        </button>
+        <button className={filter === 'incoming' ? 'active' : ''} onClick={() => setFilter('incoming')}>
+          From Mobile ({incomingNotifications.length})
+        </button>
+        <button className={filter === 'completed' ? 'active' : ''} onClick={() => setFilter('completed')}>
+          Completed ({completedNotifications.length})
+        </button>
+      </div>
+
+      {filtered.length === 0 ? (
         <div className="empty-state">
-          <p>No active emergency reports at the moment.</p>
+          <p>No notifications to display.</p>
         </div>
       ) : (
         <div className="notification-list">
-          {notifications.map((notification) => {
-            const { id, reporter, reporterContact, status, acknowledgedBy, date } = notification;
-            const typeMeta = emergencyTypeMap[notification.type] || {
-              color: '#ccc'
-            };
-            const statusLabel = status || 'Pending';
+          {filtered.map((notification) => {
+            const { id, reporter, reporterContact, status, date } = notification;
+            const typeMeta = emergencyTypeMap[notification.type] || { color: '#ccc' };
+            const statusLabel = status || (isCompleted(notification) ? 'Completed' : 'Pending');
 
             return (
               <div
@@ -31,7 +57,6 @@ export default function NotificationsView({ notifications, viewOnMap, dismissNot
                 className="notification-card"
                 style={{ borderLeft: `6px solid ${typeMeta.color}` }}
               >
-                {/* Close button */}
                 <button
                   onClick={() => dismissNotification && dismissNotification(id)}
                   style={{
@@ -48,17 +73,11 @@ export default function NotificationsView({ notifications, viewOnMap, dismissNot
                   ×
                 </button>
 
-                {/* Header */}
                 <h3 className="notification-header">
                   {id} - {statusLabel}
-                  {acknowledgedBy ? ` (by ${acknowledgedBy})` : ''}
                 </h3>
-
-                {/* Reporter and Date */}
                 <p><strong>Reporter:</strong> {reporter} ({reporterContact || 'N/A'})</p>
                 <p><strong>Date:</strong> {formatDate(date)}</p>
-
-                {/* Actions */}
                 <div className="notification-actions">
                   <button
                     className="btn map"

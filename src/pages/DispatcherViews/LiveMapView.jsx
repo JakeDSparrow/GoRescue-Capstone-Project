@@ -1,205 +1,177 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
+import 'leaflet.gridlayer.googlemutant';
 import { emergencySeverityMap, emergencyTypeMap } from '../../constants/dispatchConstants';
 import 'leaflet/dist/leaflet.css';
 
+// Custom marker icon functions
+const getNotificationIcon = (notif) => {
+  const typeMeta = emergencyTypeMap[notif.type?.toLowerCase()] || {};
+  const color = typeMeta.color || '#555';
+  const label = typeMeta.label || notif.type || 'Unknown';
+  return L.divIcon({
+    html: `<div style="
+      background-color: ${color};
+      border: 2px solid white;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      box-shadow: 0 0 6px ${color};
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 12px;
+    " title="${label}">N</div>`,
+    className: 'emergency-marker notification-marker',
+    iconSize: [30, 30],
+  });
+}; 
+
+const getReportIcon = (report) => {
+  const severityMeta = emergencySeverityMap[report.emergencySeverity?.toLowerCase()] || {};
+  const color = severityMeta.color || '#e74c3c';
+  const label = severityMeta.label || report.emergencySeverity || 'Unknown';
+  return L.divIcon({
+    html: `<div style="
+      background-color: ${color};
+      border: 2px solid white;
+      border-radius: 50%;
+      width: 35px;
+      height: 35px;
+      box-shadow: 0 0 8px ${color};
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 12px;
+    " title="${label}">R</div>`,
+    className: 'emergency-marker report-marker',
+    iconSize: [35, 35],
+  });
+};
+
 export default function LiveMapView({ mapRef, notifications = [], reportLogs = [] }) {
+  // CORRECT: useRef is called inside the component function
+  const markersRef = useRef(new L.LayerGroup()); 
+  const victoriaTarlac = [15.5784, 120.6819];
+
+  // 1. Map Initialization Effect (runs only once)
   useEffect(() => {
     const mapContainer = document.getElementById('map');
     if (mapContainer && mapContainer._leaflet_id) {
-      mapContainer._leaflet_id = null; // reset for hot reloads
+      mapContainer._leaflet_id = null;
     }
 
-    const victoriaTarlac = [15.5784, 120.6819];
-    const map = L.map(mapContainer).setView(victoriaTarlac, 14);
-    
+    const initMap = () => {
+      const map = L.map(mapContainer).setView(victoriaTarlac, 14);
 
-    L.tileLayer(
-      `https://maps.geoapify.com/v1/tile/osm-bright/{z}/{x}/{y}.png?apiKey=499958bc884b4b8cae36c651db0a3d7d`,
-      {
-        attribution: 'Powered by Geoapify',
-        maxZoom: 20,
+      L.gridLayer.googleMutant({
+        type: 'roadmap',
+        maxZoom: 21,
+        attribution: '© Google Maps'
+      }).addTo(map);
+
+      markersRef.current.addTo(map);
+      mapRef.current = map;
+    };
+
+    if (window.google && window.google.maps) {
+      initMap();
+    } else {
+      const scriptId = 'google-maps-script';
+      if (!document.getElementById(scriptId)) {
+        const script = document.createElement('script');
+        script.id = scriptId;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyCF2-KnVOheWhoZbFAWs3MMyvEb-IC-o54&libraries=places`;
+        script.async = true;
+        script.defer = true;
+        script.onload = initMap;
+        document.body.appendChild(script);
+      } else {
+        document.getElementById(scriptId).onload = initMap;
       }
-    ).addTo(map);
+    }
 
-    // FIXED: Enhanced coordinate parsing function
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, [mapRef]);
+
+  // 2. Marker Update Effect (runs on every data change)
+  useEffect(() => {
     const parseCoords = (loc) => {
-      console.log('Parsing coordinates:', loc, typeof loc);
-      
-      if (!loc) {
-        console.log('No location data provided');
-        return null;
-      }
-      
-      // Handle object format (new format from CreateRescueModal)
+      if (!loc) return null;
+
       if (typeof loc === 'object' && loc !== null) {
-        const lat = Number(loc.lat || loc.latitude);
-        const lng = Number(loc.lng || loc.lon || loc.longitude);
-        
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          console.log('✅ Parsed object coordinates:', { lat, lng });
-          return { lat, lng };
-        } else {
-          console.warn('Invalid coordinates in object:', loc);
-          return null;
-        }
+        const lat = Number(loc.lat ?? loc.latitude);
+        const lng = Number(loc.lng ?? loc.lon ?? loc.longitude);
+        if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
       }
-      
-      // Handle string format (legacy format)
+
       if (typeof loc === 'string') {
         try {
-          // Try to parse as JSON first
           const parsed = JSON.parse(loc);
-          const lat = Number(parsed.lat || parsed.latitude);
-          const lng = Number(parsed.lng || parsed.lon || parsed.longitude);
-          
-          if (Number.isFinite(lat) && Number.isFinite(lng)) {
-            console.log('✅ Parsed JSON string coordinates:', { lat, lng });
-            return { lat, lng };
-          }
-        } catch (jsonError) {
-          console.log('Not valid JSON, trying comma-separated format');
-          
-          // Try comma-separated format: "lat,lng"
+          const lat = Number(parsed.lat ?? parsed.latitude);
+          const lng = Number(parsed.lng ?? parsed.lon ?? parsed.longitude);
+          if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
+        } catch {
           if (loc.includes(',')) {
             const [latStr, lngStr] = loc.split(',');
             const lat = Number(latStr.trim());
             const lng = Number(lngStr.trim());
-            
-            if (Number.isFinite(lat) && Number.isFinite(lng)) {
-              console.log('✅ Parsed comma-separated coordinates:', { lat, lng });
-              return { lat, lng };
-            }
+            if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
           }
         }
       }
-      
-      console.warn('❌ Could not parse coordinates:', loc);
+
       return null;
     };
 
-    // Clear existing markers before re-rendering
-    map.eachLayer((layer) => {
-      if (layer instanceof L.Marker) {
-        map.removeLayer(layer);
-      }
-    });
+    markersRef.current.clearLayers();
 
-    console.log(`Processing ${notifications.length} notifications and ${reportLogs.length} reports`);
-
-    // Markers from notifications
-    notifications.forEach((notif, index) => {
-      console.log(`Processing notification ${index}:`, notif);
-      
+    notifications.forEach((notif) => {
       const coords = parseCoords(notif.coordinates || notif.location);
-      if (!coords || !coords.lat || !coords.lng) {
-        console.warn(`❌ Skipping notification ${index} due to invalid coordinates:`, notif);
-        return;
-      }
-
-      console.log(`✅ Adding notification marker at:`, coords);
-
-      const typeMeta = emergencyTypeMap[notif.type?.toLowerCase()] || {};
-      const color = typeMeta.color || '#555';
-      const label = typeMeta.label || notif.type || 'Unknown';
-
-      L.marker([coords.lat, coords.lng], {
-        icon: L.divIcon({
-          html: `<div style="
-            background-color: ${color};
-            border: 2px solid white;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            box-shadow: 0 0 6px ${color};
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
-            font-size: 12px;
-          " title="${label}">N</div>`,
-          className: 'emergency-marker notification-marker',
-          iconSize: [30, 30],
-        }),
-      })
-      .addTo(map)
-      .bindPopup(
-        `<div class="marker-popup">
-          <b>📢 Notification</b><br/>
-          <strong>Type:</strong> ${label}<br/>
-          <strong>Location:</strong> ${notif.location || notif.locationText || 'N/A'}<br/>
-          <strong>Coordinates:</strong> ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}
-        </div>`
-      );
+      if (!coords) return;
+      L.marker([coords.lat, coords.lng], { icon: getNotificationIcon(notif) })
+        .bindPopup(`
+          <div class="marker-popup">
+            <b>📢 Notification</b><br/>
+            <strong>Type:</strong> ${emergencyTypeMap[notif.type?.toLowerCase()]?.label || notif.type || 'Unknown'}<br/>
+            <strong>Location:</strong> ${notif.location || notif.locationText || 'N/A'}<br/>
+            <strong>Coordinates:</strong> ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}
+          </div>
+        `)
+        .addTo(markersRef.current);
     });
 
-    // Markers from reportLogs
-    reportLogs.forEach((report, index) => {
-      console.log(`Processing report ${index}:`, report);
-      
+    reportLogs.forEach((report) => {
       const coords = parseCoords(report.location);
-      if (!coords || !coords.lat || !coords.lng) {
-        console.warn(`❌ Skipping report ${index} due to invalid coordinates:`, report);
-        return;
-      }
-
-      console.log(`✅ Adding report marker at:`, coords);
-
-      const severityMeta = emergencySeverityMap[report.emergencySeverity?.toLowerCase()] || {};
-      const color = severityMeta.color || '#555';
-      const label = severityMeta.label || report.emergencySeverity || 'Unknown';
-
-      // Different marker style for reports
-      L.marker([coords.lat, coords.lng], {
-        icon: L.divIcon({
-          html: `<div style="
-            background-color: ${color};
-            border: 2px solid white;
-            border-radius: 50%;
-            width: 35px;
-            height: 35px;
-            box-shadow: 0 0 8px ${color};
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
-            font-size: 12px;
-          " title="${label}">R</div>`,
-          className: 'emergency-marker report-marker',
-          iconSize: [35, 35],
-        }),
-      })
-      .addTo(map)
-      .bindPopup(
-        `<div class="marker-popup">
-          <b>🚨 Report #${report.reportId || report.id}</b><br/>
-          <strong>Severity:</strong> ${label}<br/>
-          <strong>Type:</strong> ${emergencyTypeMap[report.emergencyType?.toLowerCase()]?.label || report.emergencyType || 'N/A'}<br/>
-          <strong>Reporter:</strong> ${report.reporterName || report.reporter || 'N/A'}<br/>
-          <strong>Location:</strong> ${report.locationText || report.matchedLocation || 'N/A'}<br/>
-          <strong>Team:</strong> ${report.respondingTeam || 'N/A'}<br/>
-          <strong>Status:</strong> ${(report.status || 'N/A').toUpperCase()}<br/>
-          <strong>Coordinates:</strong> ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}
-          ${report.locationPrecision ? `<br/><strong>Precision:</strong> ${report.locationPrecision}` : ''}
-        </div>`
-      );
+      if (!coords) return;
+      L.marker([coords.lat, coords.lng], { icon: getReportIcon(report) })
+        .bindPopup(`
+          <div class="marker-popup">
+            <b>🚨 Report #${report.reportId || report.id}</b><br/>
+            <strong>Severity:</strong> ${emergencySeverityMap[report.emergencySeverity?.toLowerCase()]?.label || report.emergencySeverity || 'N/A'}<br/>
+            <strong>Type:</strong> ${emergencyTypeMap[report.emergencyType?.toLowerCase()]?.label || report.emergencyType || 'N/A'}<br/>
+            <strong>Reporter:</strong> ${report.reporterName || report.reporter || 'N/A'}<br/>
+            <strong>Location:</strong> ${report.locationText || report.matchedLocation || 'N/A'}<br/>
+            <strong>Team:</strong> ${report.respondingTeam || 'N/A'}<br/>
+            <strong>Status:</strong> ${(report.status || 'N/A').toUpperCase()}<br/>
+            <strong>Coordinates:</strong> ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}
+            ${report.locationPrecision ? `<br/><strong>Precision:</strong> ${report.locationPrecision}` : ''}
+          </div>
+        `)
+        .addTo(markersRef.current);
     });
-
-    console.log(`✅ Map initialized with ${notifications.length} notifications and ${reportLogs.length} reports`);
-
-    mapRef.current = map;
-
-    return () => {
-      if (map) {
-        map.remove();
-      }
-      mapRef.current = null;
-    };
-  }, [mapRef, notifications, reportLogs]);
+  }, [notifications, reportLogs]);
 
   return (
     <div className="map-container">
@@ -249,15 +221,13 @@ export default function LiveMapView({ mapRef, notifications = [], reportLogs = [
           title="Reset View"
           onClick={() => {
             if (mapRef.current) {
-              mapRef.current.setView([15.5784, 120.6819], 14);
+              mapRef.current.setView(victoriaTarlac, 14);
             }
           }}
         >
           <i className="fas fa-home" />
         </button>
       </div>
-      
-      {/* Map Legend */}
       <div className="map-legend">
         <div className="legend-item">
           <div className="legend-marker" style={{ backgroundColor: '#e74c3c' }}>R</div>
