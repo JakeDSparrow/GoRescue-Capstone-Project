@@ -21,6 +21,7 @@ export default function DispatcherPage() {
   const navigate = useNavigate();
   const [activeView, setActiveView] = useState('map-view');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [notifications, setNotifications] = useState([]);
   const [reportLogs, setReportLogs] = useState(() => {
     const saved = localStorage.getItem('reportLogs');
@@ -53,13 +54,34 @@ export default function DispatcherPage() {
   const [currentTeam, setCurrentTeam] = useState(null);
   const [teams, setTeams] = useState({ alpha: [], bravo: [] });
   const [toasts, setToasts] = useState([]);
+  const lastIncidentStatusRef = useRef({});
 
-  const showToast = (text) => {
+  const showToast = (payload) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setToasts(prev => [...prev, { id, text }]);
+    const normalized = typeof payload === 'string' ? { text: payload } : (payload || {});
+    const toast = {
+      id,
+      text: normalized.text || '',
+      type: normalized.type || 'info', // info | success | warning | danger
+      severity: normalized.severity || null, // critical | high | moderate | low
+      onClick: typeof normalized.onClick === 'function' ? normalized.onClick : null,
+      duration: Number(normalized.duration) > 0 ? Number(normalized.duration) : 5000
+    };
+    setToasts(prev => [...prev, toast]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
-    }, 5000);
+    }, toast.duration);
+  };
+
+  const dismissToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
+
+  const formatTeamLabel = (teamKey) => {
+    if (!teamKey) return null;
+    const lower = String(teamKey).toLowerCase();
+    if (lower.startsWith('team ')) return teamKey;
+    const base = String(teamKey).split('-')[0];
+    if (!base) return null;
+    return `Team ${base.charAt(0).toUpperCase() + base.slice(1)}`;
   };
 
   // Restore data from sessionStorage on load
@@ -231,6 +253,15 @@ export default function DispatcherPage() {
   }, []);
 
   const toggleSidebar = () => setSidebarCollapsed(!sidebarCollapsed);
+
+  // Track viewport width for responsive behaviors (e.g., sidebar backdrop)
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const isMobileSidebarOpen = !sidebarCollapsed && viewportWidth <= 1024;
 
   const startHighlightTimer = (id) => {
     if (highlightTimers.current[id]) return;
@@ -560,11 +591,18 @@ export default function DispatcherPage() {
       };
       setNotifications(prev => [...prev, notificationItem]);
 
-      // Show a toast
-      const coordsText = location?.lat && location?.lng
-        ? ` @ (${Number(location.lat).toFixed(5)}, ${Number(location.lng).toFixed(5)})`
-        : '';
-      showToast(`Acknowledged: ${emergencyType}${coordsText}`);
+      // Show a toast with formatted message
+      const teamRaw = data.respondingTeam || data.assignedTeam;
+      const teamLabel = formatTeamLabel(teamRaw) || 'Team';
+      const reportLabel = data.reportId || docId;
+      showToast({
+        text: `${teamLabel} has acknowledged Report ${reportLabel}`,
+        type: 'info',
+        severity: (data.emergencySeverity || data.severity || '').toLowerCase(),
+        onClick: () => {
+          setActiveView('report-logs-view');
+        }
+      });
     });
   }, (error) => {
     console.error('Error listening for acknowledgements:', error);
@@ -572,6 +610,60 @@ export default function DispatcherPage() {
 
   return () => unsubscribe();
 }, [db]);
+
+  // Listen for general incident status changes to toast updates (en route, on scene, transferring, heading back, completed)
+  useEffect(() => {
+    const incidentsRef = collection(db, 'incidents');
+    const unsubscribe = onSnapshot(incidentsRef, (snapshot) => {
+      snapshot.docChanges().forEach((dc) => {
+        const data = dc.doc.data() || {};
+        const docId = dc.doc.id;
+        const rawStatus = String(data.status || '').toLowerCase();
+        const normalizedStatus = rawStatus
+          .replace(/\s+/g, '-')
+          .replace(/^in-progress$/, 'in-progress');
+
+        const lastStatus = lastIncidentStatusRef.current[docId];
+        if (lastStatus === normalizedStatus) return;
+        lastIncidentStatusRef.current[docId] = normalizedStatus;
+
+        // Map statuses of interest to human text
+        const statusTextMap = {
+          'acknowledged': 'has acknowledged',
+          'en-route': 'is en route',
+          'enroute': 'is en route',
+          'on-scene': 'is on scene',
+          'onscene': 'is on scene',
+          'transferring': 'is transferring a patient',
+          'heading-back': 'is heading back',
+          'completed': 'has completed the mission',
+          'resolved': 'has completed the mission'
+        };
+
+        if (!statusTextMap[normalizedStatus]) return;
+
+        const teamLabel = formatTeamLabel(data.respondingTeam || data.assignedTeam) || 'Team';
+        const reportLabel = data.reportId || docId;
+
+        // Severity-driven toast type
+        const sev = String(data.emergencySeverity || data.severity || '').toLowerCase();
+        const sevType = sev === 'critical' ? 'danger' : (sev === 'high' ? 'warning' : 'info');
+
+        showToast({
+          text: `${teamLabel} ${statusTextMap[normalizedStatus]} for Report ${reportLabel}`,
+          type: sevType,
+          severity: sev,
+          onClick: () => {
+            setActiveView('report-logs-view');
+          }
+        });
+      });
+    }, (error) => {
+      console.error('Error listening for incident updates:', error);
+    });
+
+    return () => unsubscribe();
+  }, [db]);
 
   const menuItems = [
     { id: 'map-view', icon: 'fa-map', label: 'Live Map' },
@@ -604,7 +696,7 @@ export default function DispatcherPage() {
     <div className='dispatcher-page'>
       <div className={`dispatcher-layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
         <div className="top-bar">
-          <div className="menu-toggle" onClick={toggleSidebar}><i className="fas fa-bars" /></div>
+          <div className="menu-toggle" onClick={toggleSidebar} aria-label="Toggle sidebar" role="button" tabIndex={0}><i className="fas fa-bars" /></div>
           <img src={Logo} alt="Victoria Rescue Logo" className="logo-small" />
           <div className="user-menu">
             <span className="user-name">
@@ -649,6 +741,16 @@ export default function DispatcherPage() {
             ))}
           </div>
         </div>
+
+        {/* Sidebar backdrop for mobile/tablet */}
+        {isMobileSidebarOpen && (
+          <div
+            className="sidebar-backdrop"
+            onClick={() => setSidebarCollapsed(true)}
+            role="button"
+            aria-label="Close sidebar"
+          />
+        )}
 
         <div className="main-content">
           <div className="content-view">{viewConfig[activeView]}</div>
@@ -732,6 +834,16 @@ export default function DispatcherPage() {
         )}
 
         {/* Toasts */}
+        {/* Toast styles for animation */}
+        <style>
+          {`
+            @keyframes toastIn {
+              from { opacity: 0; transform: translateY(8px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+          `}
+        </style>
+
         <div
           style={{
             position: 'fixed',
@@ -743,21 +855,65 @@ export default function DispatcherPage() {
             zIndex: 2000
           }}
         >
-          {toasts.map(t => (
-            <div
-              key={t.id}
-              style={{
-                background: '#2ecc71',
-                color: 'white',
-                padding: '12px 16px',
-                borderRadius: 8,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                maxWidth: 360
-              }}
-            >
-              {t.text}
-            </div>
-          ))}
+          {toasts.map((t, idx) => {
+            const colorMap = {
+              success: '#2ecc71',
+              info: '#3498db',
+              warning: '#f39c12',
+              danger: '#e74c3c'
+            };
+            const severityColorMap = {
+              critical: '#e74c3c',
+              high: '#f39c12',
+              moderate: '#3498db',
+              low: '#2ecc71'
+            };
+            const iconMap = {
+              success: 'fa-check-circle',
+              info: 'fa-info-circle',
+              warning: 'fa-exclamation-triangle',
+              danger: 'fa-exclamation-circle'
+            };
+            const bg = (t.severity && severityColorMap[t.severity]) || colorMap[t.type] || colorMap.info;
+            const icon = iconMap[t.type] || iconMap.info;
+            return (
+              <div
+                key={t.id}
+                style={{
+                  background: bg,
+                  color: 'white',
+                  padding: '12px 16px',
+                  borderRadius: 8,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  maxWidth: 360,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 10,
+                  animation: 'toastIn 180ms ease-out',
+                  cursor: t.onClick ? 'pointer' : 'default'
+                }}
+                onClick={() => {
+                  if (t.onClick) t.onClick();
+                }}
+              >
+                <i className={`fas ${icon}`} style={{ marginTop: 2 }} />
+                <div style={{ flex: 1, lineHeight: 1.3 }}>{t.text}</div>
+                <button
+                  onClick={() => dismissToast(t.id)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 'bold'
+                  }}
+                  aria-label="Dismiss toast"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
         </div>
 
       </div>
