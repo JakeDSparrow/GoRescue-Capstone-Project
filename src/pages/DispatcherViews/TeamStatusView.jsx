@@ -219,11 +219,43 @@ const TeamStatusView = () => {
           }
         });
 
-        // Sort by timestamp
+        // Sort by severity priority (Critical > High > Moderate > Low), then by timestamp
+        const severityPriority = {
+          'critical': 4,
+          'high': 3,
+          'moderate': 2,
+          'low': 1
+        };
+        
         Object.keys(missionsPerTeam).forEach((teamId) => {
-          missionsPerTeam[teamId].sort(
-            (a, b) => b.timestamp.getTime() - a.timestamp.getTime()
-          );
+          try {
+            missionsPerTeam[teamId].sort((a, b) => {
+              // Get severity for both items
+              const severityA = (a.emergencySeverity || a.priority || 'low').toLowerCase();
+              const severityB = (b.emergencySeverity || b.priority || 'low').toLowerCase();
+              
+              // Get priority values
+              const priorityA = severityPriority[severityA] || 1;
+              const priorityB = severityPriority[severityB] || 1;
+              
+              // Sort by priority first (higher priority first)
+              if (priorityA !== priorityB) {
+                return priorityB - priorityA;
+              }
+              
+              // If same priority, sort by timestamp (most recent first)
+              try {
+                const timeA = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
+                const timeB = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
+                return timeB - timeA;
+              } catch (timestampError) {
+                console.warn('Error processing timestamp in sort:', timestampError);
+                return 0; // Keep original order if timestamp is invalid
+              }
+            });
+          } catch (sortError) {
+            console.error('Error sorting missions for team:', teamId, sortError);
+          }
         });
 
         const baseTeams = Object.values(teamsData).map((team) => ({

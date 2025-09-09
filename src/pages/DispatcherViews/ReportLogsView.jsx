@@ -46,12 +46,25 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
     }
   }, [reportLogs, setReportLogs]);
 
-  const activeReports = reportLogs.filter(
-    (log) =>
-      log.status === 'Pending' ||
-      log.status === 'Acknowledged' ||
-      log.status === 'In Progress'
-  );
+  // Sort reports by timestamp (most recent first) and filter active ones
+  const activeReports = reportLogs
+    .filter(
+      (log) =>
+        log.status === 'Pending' ||
+        log.status === 'Acknowledged' ||
+        log.status === 'In Progress'
+    )
+    .sort((a, b) => {
+      try {
+        // Ensure we have valid timestamps
+        const timestampA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const timestampB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return timestampB - timestampA; // Most recent first
+      } catch (error) {
+        console.warn('Error sorting reports by timestamp:', error);
+        return 0; // Keep original order if timestamp is invalid
+      }
+    });
 
   const handleView = (log) => {
     setSelectedReport(log);
