@@ -425,40 +425,88 @@ export default function DispatcherPage() {
   };
   
   // Firestore realtime fetch report logs
+ // Combined listener for all status changes, including 'Acknowledged'
   useEffect(() => {
     const incidentsRef = collection(db, 'incidents');
-    const q = query(incidentsRef, where('status', 'in', ['Pending', 'Acknowledged', 'In Progress']));
+    const unsubscribe = onSnapshot(incidentsRef, (snapshot) => {
+      snapshot.docChanges().forEach((dc) => {
+        const data = dc.doc.data() || {};
+        const docId = dc.doc.id;
+        const rawStatus = String(data.status || '').toLowerCase();
+        const normalizedStatus = rawStatus.replace(/\s+/g, '-');
 
-    const unsubscribe = onSnapshot(q, snapshot => {
-      const fetchedReports = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          location: typeof data.location === 'string' ? JSON.parse(data.location) : data.location,
-          timestamp: data.timestamp?.toDate ? data.timestamp.toDate().toISOString() : (data.timestamp || new Date().toISOString())
+        const lastStatus = lastIncidentStatusRef.current[docId];
+
+        // This is the key fix: check if the status has actually changed since the last update
+        if (lastStatus === normalizedStatus) {
+            return;
+        }
+
+        // Update the last known status for this document
+        lastIncidentStatusRef.current[docId] = normalizedStatus;
+
+        // Map statuses of interest to human text
+        const statusTextMap = {
+          'acknowledged': 'has acknowledged',
+          'on route': 'is on route',
+          'on-scene': 'is on scene',
+          'onscene': 'is on scene',
+          'transferring': 'is transferring a patient',
+          'heading-back': 'is heading back',
+          'completed': 'has completed the mission',
+          'resolved': 'has completed the mission'
         };
+
+        const statusMessage = statusTextMap[normalizedStatus];
+        if (!statusMessage) {
+            return;
+        }
+
+        // Normalize location for notifications
+        const locFromField = typeof data.location === 'string' ? JSON.parse(data.location) : data.location;
+        const locFromLatLng = (data.latitude && data.longitude)
+          ? { lat: Number(data.latitude), lng: Number(data.longitude) }
+          : undefined;
+        const location = locFromField || locFromLatLng;
+        const severity = data.emergencySeverity || data.severity || 'N/A';
+        const reporter = data.reporter || 'Unknown';
+        const emergencyType = data.emergencyType || 'Incident';
+        const acknowledgingUser = data.acknowledgedBy || 'Unknown';
+
+        // Add a notification for ALL new statuses, not just 'acknowledged'
+        const notificationItem = {
+          id: `${normalizedStatus}-${docId}-${Date.now()}`,
+          type: normalizedStatus,
+          title: `Status Update: ${normalizedStatus.replace(/-/g, ' ')}`,
+          details: `${emergencyType} status updated by ${acknowledgingUser}`,
+          severity,
+          reporter,
+          location,
+          timestamp: new Date().toISOString(),
+          responded: true
+        };
+        setNotifications(prev => [...prev, notificationItem]);
+
+        // Show a toast with formatted message
+        const teamRaw = data.respondingTeam || data.assignedTeam;
+        const teamLabel = formatTeamLabel(teamRaw) || 'Team';
+        const reportLabel = data.reportId || docId;
+
+        // Severity-driven toast type
+        const sev = String(data.emergencySeverity || data.severity || '').toLowerCase();
+        const sevType = sev === 'critical' ? 'danger' : (sev === 'high' ? 'warning' : 'info');
+
+        showToast({
+          text: `${teamLabel} ${statusMessage} for Report ${reportLabel}`,
+          type: sevType,
+          severity: sev,
+          onClick: () => {
+            setActiveView('report-logs-view');
+          }
+        });
       });
-      
-      setReportLogs(fetchedReports);
-      
-      // Save to both localStorage and sessionStorage
-      const logsToSave = fetchedReports.map(r => ({
-        ...r,
-        location: JSON.stringify(r.location)
-      }));
-      localStorage.setItem('reportLogs', JSON.stringify(logsToSave));
-      
-      // Also update sessionStorage for cross-tab sync
-      const currentData = JSON.parse(sessionStorage.getItem('dispatcherData') || '{}');
-      sessionStorage.setItem('dispatcherData', JSON.stringify({
-        ...currentData,
-        reportLogs: logsToSave,
-        timestamp: Date.now()
-      }));
-      
-    }, error => {
-      console.error('Error fetching incidents:', error);
+    }, (error) => {
+      console.error('Error listening for incident updates:', error);
     });
 
     return () => unsubscribe();
@@ -675,7 +723,7 @@ export default function DispatcherPage() {
   ];
 
   const viewConfig = {
-    'map-view': <LiveMapView mapRef={mapRef} notifications={notifications} reportLogs={reportLogs} teams={teams} />,
+    'map-view': <LiveMapView mapRef={mapRef} notifications={notifications} reportLogs={reportLogs} setReportLogs={setReportLogs} teams={teams} />,
     'notifications-view': <NotificationsView
       notifications={notifications}
       dispatchTeam={dispatchTeam}

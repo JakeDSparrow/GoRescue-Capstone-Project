@@ -1,9 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet.gridlayer.googlemutant';
+import { getFirestore, collection, query, onSnapshot, where } from "firebase/firestore";
 import { emergencySeverityMap, emergencyTypeMap } from '../../constants/dispatchConstants';
 import 'leaflet/dist/leaflet.css';
 
+
+const db = getFirestore();
 // Custom marker icon functions
 const getNotificationIcon = (notif) => {
   const typeMeta = emergencyTypeMap[notif.type?.toLowerCase()] || {};
@@ -55,7 +58,7 @@ const getReportIcon = (report) => {
   });
 };
 
-export default function LiveMapView({ mapRef, notifications = [], reportLogs = [] }) {
+export default function LiveMapView({ mapRef, notifications = [], reportLogs = [], setReportLogs=[] }) {
   // CORRECT: useRef is called inside the component function
   const markersRef = useRef(new L.LayerGroup()); 
   const victoriaTarlac = [15.5784, 120.6819];
@@ -150,6 +153,32 @@ export default function LiveMapView({ mapRef, notifications = [], reportLogs = [
           </div>
         `)
         .addTo(markersRef.current);
+      // Add this inside notifications.forEach
+        if (notif.acknowledgedDevice) {
+        const ack = notif.acknowledgedDevice;
+        const ackCoords = parseCoords(ack.location || ack.coordinates);
+        if (ackCoords) {
+          L.marker([ackCoords.lat, ackCoords.lng], {
+            icon: L.divIcon({
+              html: `<div style="
+                background-color: #007bff;
+                border: 2px solid white;
+                border-radius: 50%;
+                width: 25px;
+                height: 25px;
+                box-shadow: 0 0 6px #007bff;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-size: 10px;
+              ">📍</div>`,
+              className: 'ack-device-marker',
+              iconSize: [25, 25],
+            })
+          }).bindPopup(`<b>${ack.name || "Device"}</b>`).addTo(markersRef.current);
+        }
+      }
     });
 
     reportLogs.forEach((report) => {
@@ -171,7 +200,79 @@ export default function LiveMapView({ mapRef, notifications = [], reportLogs = [
         `)
         .addTo(markersRef.current);
     });
-  }, [notifications, reportLogs]);
+  }, [notifications, reportLogs]); 
+
+useEffect(() => {
+  if (!mapRef.current) return;
+
+  const db = getFirestore();
+  const incidentsRef = collection(db, "incidents");
+
+  const activeStatuses = ["pending", "acknowledged", "in progress"]; // lowercase for comparison
+
+  const unsubscribe = onSnapshot(incidentsRef, (snapshot) => {
+    markersRef.current.clearLayers(); // clear old markers
+
+    snapshot.forEach((doc) => {
+      const incident = doc.data();
+      const status = (incident.status || "").toLowerCase();
+
+      const incidentCoords = incident.location;
+      if (!incidentCoords?.lat || !incidentCoords?.lng) return; // safety check
+
+      // Incident marker
+      L.marker([incidentCoords.lat, incidentCoords.lng], { icon: getReportIcon(incident) })
+        .bindPopup(`
+          <div class="marker-popup">
+            <b>🚨 Incident #${incident.reportId || incident.incidentCode}</b><br/>
+            <strong>Severity:</strong> ${incident.emergencySeverity}<br/>
+            <strong>Type:</strong> ${incident.emergencyType}<br/>
+            <strong>Team:</strong> ${incident.respondingTeam}<br/>
+            <strong>Status:</strong> ${incident.status}<br/>
+            <strong>Location:</strong> ${incident.locationText || incident.matchedLocation || 'N/A'}
+          </div>
+        `)
+        .addTo(markersRef.current);
+
+      // Only show responder path and current location for active statuses
+      if (activeStatuses.includes(status) && Array.isArray(incident.responderPath) && incident.responderPath.length > 0) {
+        const polylinePoints = incident.responderPath
+          .map(p => (p?.lat != null && p?.lng != null ? [p.lat, p.lng] : null))
+          .filter(Boolean);
+
+        if (polylinePoints.length > 0) {
+          L.polyline(polylinePoints, { color: "blue", weight: 4, opacity: 0.7 }).addTo(mapRef.current);
+
+          // Current responder location
+          const currentLoc = incident.responderLocation || incident.responderPath[incident.responderPath.length - 1];
+          if (currentLoc?.lat != null && currentLoc?.lng != null) {
+            L.marker([currentLoc.lat, currentLoc.lng], {
+              icon: L.divIcon({
+                html: `<div style="
+                  background-color: #007bff;
+                  border: 2px solid white;
+                  border-radius: 50%;
+                  width: 25px;
+                  height: 25px;
+                  box-shadow: 0 0 6px #007bff;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  color: white;
+                  font-size: 10px;
+                ">📍</div>`,
+                className: 'responder-marker',
+                iconSize: [25, 25],
+              })
+            }).bindPopup(`Responder: ${incident.respondingTeam}`).addTo(mapRef.current);
+          }
+        }
+      }
+    });
+  });
+
+  return () => unsubscribe();
+}, [mapRef]);
 
   return (
     <div className="map-container">
