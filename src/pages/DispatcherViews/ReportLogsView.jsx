@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { emergencySeverityMap, statusMap } from '../../constants/dispatchConstants';
 import useFormatDate from '../../hooks/useFormatDate';
 import ViewModal from '../../components/ViewModal';
-import CreateRescueModal, { emergencyTypeMap } from '../../components/CreateReportModal'; // Import emergencyTypeMap
+import CreateRescueModal, { emergencyTypeMap } from '../../components/CreateReportModal';
 import '../../components/modalstyles/ViewModalStyles.css';
+import { Timestamp } from 'firebase/firestore';
 
 function formatRespondingTeam(teamKey) {
   if (!teamKey) return 'N/A';
@@ -13,58 +14,126 @@ function formatRespondingTeam(teamKey) {
   return `Team ${team.charAt(0).toUpperCase() + team.slice(1)}`;
 }
 
-function safeRender(field) {
-  if (field === null || field === undefined) return 'N/A';
-  if (typeof field === 'object') {
-    if ('lat' in field && 'lng' in field) return `Lat: ${field.lat}, Lng: ${field.lng}`;
-    return JSON.stringify(field);
+function parseFirestoreDate(timestamp) {
+  if (!timestamp) return null;
+  
+  try {
+    // Firebase Timestamp object
+    if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+      return timestamp.toDate();
+    }
+    
+    // Already a Date object
+    if (timestamp instanceof Date) {
+      return isNaN(timestamp.getTime()) ? null : timestamp;
+    }
+    
+    // String timestamp (ISO format)
+    if (typeof timestamp === 'string') {
+      const date = new Date(timestamp);
+      return isNaN(date.getTime()) ? null : date;
+    }
+    
+    // Unix timestamp (number)
+    if (typeof timestamp === 'number') {
+      const date = new Date(timestamp);
+      return isNaN(date.getTime()) ? null : date;
+    }
+    
+    return null;
+  } catch (error) {
+    console.warn('Error parsing timestamp:', timestamp, error);
+    return null;
   }
-  return String(field);
 }
 
-export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) {
+function safeFormatDate(timestamp, formatDateTime) {
+  try {
+    const parsedDate = parseFirestoreDate(timestamp);
+    if (!parsedDate) return 'N/A';
+    return formatDateTime(parsedDate);
+  } catch (error) {
+    console.warn('Error formatting date:', timestamp, error);
+    return 'Invalid Date';
+  }
+}
+
+export default function ReportLogsView({ reportLogs = [], setReportLogs, onUpdate }) {
   const { formatDateTime } = useFormatDate();
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
 
-  useEffect(() => {
-    if (reportLogs.length === 0) {
-      const testLog = {
-        id: 'TEST-001',
-        reportId: 'TEST-001',
-        emergencyType: 'medical', // Add the new field to the test log
-        emergencySeverity: 'critical',
-        reporter: 'Test Reporter',
-        contact: '09999999999',
-        location: { lat: 14.59, lng: 120.98 },
-        timestamp: new Date().toISOString(),
-        respondingTeam: 'alpha-dayShift',
-        status: 'dispatched'
-      };
-      setReportLogs([testLog]);
-    }
-  }, [reportLogs, setReportLogs]);
+  // Remove or comment out test data for production
+ useEffect(() => {
+  // Only add test data in development when no real data exists
+  if (process.env.NODE_ENV === 'development' && reportLogs.length === 0) {
+    const testLog = {
+      id: 'TEST-001',
+      reportId: 'TEST-001',
+      emergencyType: 'medical',
+      emergencySeverity: 'critical',
+      reporter: 'Test Reporter',
+      contact: '09999999999',
+      location: { lat: 14.59, lng: 120.98 },
+      timestamp: Timestamp.fromDate(new Date()), // ✅ Firestore Timestamp
+      respondingTeam: 'alpha-dayShift',
+      status: 'pending', // lowercase to match your filter
+      locationPrecision: 'unknown',
+      locationText: 'Test Location',
+      matchedLocation: 'Test Location',
+      placeId: null,
+      notes: '',
+      createdAt: new Date().toISOString(), // optional client-side field
+    };
 
-  // Sort reports by timestamp (most recent first) and filter active ones
-  const activeReports = reportLogs
-    .filter(
-      (log) =>
-        log.status === 'Pending' ||
-        log.status === 'Acknowledged' ||
-        log.status === 'In Progress'
-    )
-    .sort((a, b) => {
-      try {
-        // Ensure we have valid timestamps
-        const timestampA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-        const timestampB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-        return timestampB - timestampA; // Most recent first
-      } catch (error) {
-        console.warn('Error sorting reports by timestamp:', error);
-        return 0; // Keep original order if timestamp is invalid
-      }
-    });
+    setReportLogs([testLog]);
+  }
+}, [reportLogs.length, setReportLogs]);
+
+  // Debug logging - remove in production
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('=== REPORT LOGS DEBUG ===');
+      console.log('Total logs:', reportLogs.length);
+      reportLogs.forEach((log, index) => {
+        console.log(`Report ${index}:`, {
+          id: log.id || log.reportId,
+          status: log.status,
+          statusType: typeof log.status,
+          timestamp: log.timestamp,
+          timestampType: typeof log.timestamp,
+          isFirebaseTimestamp: log.timestamp?.toDate ? true : false
+        });
+      });
+    }
+  }, [reportLogs]);
+
+  // Filter and sort active reports
+  const activeReports = React.useMemo(() => {
+    const activeStatuses = ['pending', 'acknowledged', 'in progress'];
+    
+    return reportLogs
+      .filter((log) => {
+        if (!log) return false;
+        const status = (log.status || '').toLowerCase().trim();
+        return activeStatuses.includes(status);
+      })
+      .sort((a, b) => {
+        try {
+          const dateA = parseFirestoreDate(a.timestamp);
+          const dateB = parseFirestoreDate(b.timestamp);
+          
+          const timeA = dateA ? dateA.getTime() : 0;
+          const timeB = dateB ? dateB.getTime() : 0;
+          
+          return timeB - timeA; // Most recent first
+        } catch (error) {
+          console.warn('Error sorting reports by timestamp:', error);
+          return 0;
+        }
+      });
+  }, [reportLogs]);
 
   const handleView = (log) => {
     setSelectedReport(log);
@@ -79,7 +148,7 @@ export default function ReportLogsView({ reportLogs, setReportLogs, onUpdate }) 
   const closeViewModal = () => setViewModalOpen(false);
   const closeEditModal = () => setEditModalOpen(false);
 
-return (
+  return (
     <div className="card">
       <h2>Report Logs</h2>
       <div className="table-container">
@@ -109,56 +178,56 @@ return (
             ) : (
               activeReports.map((log, index) => (
                 <tr key={`${log.id || log.reportId}-${index}`}>
-                  <td>{log.reportId || log.id}</td>
+                  <td>{log.reportId || log.id || 'N/A'}</td>
                   <td>
                     <span
                       style={{
-                        color: emergencyTypeMap[log.emergencyType]?.color || '#000',
+                        color: (emergencyTypeMap && emergencyTypeMap[log.emergencyType]?.color) || '#000',
                         fontWeight: 'bold',
                       }}
                     >
-                      {emergencyTypeMap[log.emergencyType]?.label || log.emergencyType}
+                      {(emergencyTypeMap && emergencyTypeMap[log.emergencyType]?.label) || log.emergencyType || 'N/A'}
                     </span>
                   </td>
                   <td>
                     <span
                       className="emergency-tag"
                       style={{
-                        backgroundColor: emergencySeverityMap[log.emergencySeverity]?.color || '#ccc',
+                        backgroundColor: (emergencySeverityMap && emergencySeverityMap[log.emergencySeverity]?.color) || '#ccc',
                         color: 'white',
                         padding: '4px 8px',
                         borderRadius: '4px',
                         textTransform: 'uppercase',
                       }}
                     >
-                      {emergencySeverityMap[log.emergencySeverity]?.label || log.emergencySeverity}
+                      {(emergencySeverityMap && emergencySeverityMap[log.emergencySeverity]?.label) || log.emergencySeverity || 'N/A'}
                     </span>
                   </td>
                   <td>
-                    {log.reporter} <br />
-                    <small>{log.contact}</small>
+                    {log.reporter || 'N/A'} <br />
+                    <small>{log.contact || 'N/A'}</small>
                   </td>
                   <td>{formatRespondingTeam(log.respondingTeam)}</td>
                   <td>
                     {(() => {
-                      const statusKey = (log.status || '').toLowerCase();
-                      const statusMeta = statusMap[statusKey];
+                      const statusKey = (log.status || '').toLowerCase().trim();
+                      const statusMeta = statusMap && statusMap[statusKey];
                       return (
                         <span
                           className="status-badge"
                           style={{
-                            backgroundColor: statusMeta?.color || '#ccc',
+                            backgroundColor: (statusMeta?.color) || '#ccc',
                             color: 'white',
                             padding: '4px 8px',
                             borderRadius: '4px',
                           }}
                         >
-                          {statusMeta?.label || log.status || 'N/A'}
+                          {(statusMeta?.label) || log.status || 'N/A'}
                         </span>
                       );
                     })()}
                   </td>
-                  <td>{log.timestamp ? formatDateTime(log.timestamp) : 'N/A'}</td>
+                  <td>{safeFormatDate(log.timestamp, formatDateTime)}</td>
                   <td>
                     <button className="btn-action btn-view" onClick={() => handleView(log)}>
                       <i className="fas fa-eye" /> View
@@ -174,8 +243,21 @@ return (
         </table>
       </div>
 
-      <ViewModal isOpen={viewModalOpen} onClose={closeViewModal} report={selectedReport} />
-      <CreateRescueModal isOpen={editModalOpen} onClose={closeEditModal} reportToEdit={selectedReport} />
+      {selectedReport && (
+        <>
+          <ViewModal 
+            isOpen={viewModalOpen} 
+            onClose={closeViewModal} 
+            report={selectedReport} 
+          />
+          <CreateRescueModal 
+            isOpen={editModalOpen} 
+            onClose={closeEditModal} 
+            reportToEdit={selectedReport} 
+            onReportCreated={onUpdate}
+          />
+        </>
+      )}
     </div>
   );
 }

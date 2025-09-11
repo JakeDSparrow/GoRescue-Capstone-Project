@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { getAuth, signOut } from 'firebase/auth';
-import { getFirestore, doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, collection, onSnapshot } from 'firebase/firestore';
 import alertSound from '../assets/alertSound.mp3';
 import LiveMapView from './DispatcherViews/LiveMapView';
 import NotificationsView from './DispatcherViews/NotificationsView';
@@ -14,11 +14,9 @@ import CreateRescueModal from '../components/CreateReportModal';
 import Logo from '../assets/GoRescueLogo.webp';
 import L from 'leaflet';
 import { emergencySeverityMap } from '../constants/dispatchConstants';
-import { useNavigate } from 'react-router-dom';
 
 export default function DispatcherPage() {
   const [userName, setUserName] = useState('');
-  const navigate = useNavigate();
   const [activeView, setActiveView] = useState('map-view');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
@@ -41,7 +39,6 @@ export default function DispatcherPage() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [contextMenu, setContextMenu] = useState({ show: false, x: 0, y: 0, menuItem: null });
-  const acknowledgedSeen = useRef(new Set());
 
   const db = getFirestore();
   const notificationAudio = useRef(new Audio(alertSound));
@@ -425,92 +422,82 @@ export default function DispatcherPage() {
   };
   
   // Firestore realtime fetch report logs
- // Combined listener for all status changes, including 'Acknowledged'
-  useEffect(() => {
-    const incidentsRef = collection(db, 'incidents');
-    const unsubscribe = onSnapshot(incidentsRef, (snapshot) => {
-      snapshot.docChanges().forEach((dc) => {
-        const data = dc.doc.data() || {};
-        const docId = dc.doc.id;
-        const rawStatus = String(data.status || '').toLowerCase();
-        const normalizedStatus = rawStatus.replace(/\s+/g, '-');
+ // A SINGLE, EFFICIENT LISTENER
+useEffect(() => {
+  const incidentsRef = collection(db, 'incidents');
+  
+  const unsubscribe = onSnapshot(incidentsRef, (snapshot) => {
+    snapshot.docChanges().forEach((change) => {
+      // Only process documents that were added or modified
+      if (change.type !== 'added' && change.type !== 'modified') {
+        return;
+      }
 
-        const lastStatus = lastIncidentStatusRef.current[docId];
+      const data = change.doc.data() || {};
+      const docId = change.doc.id;
+      const normalizedStatus = String(data.status || '').toLowerCase().replace(/\s+/g, '-');
+      const lastStatus = lastIncidentStatusRef.current[docId];
 
-        // This is the key fix: check if the status has actually changed since the last update
-        if (lastStatus === normalizedStatus) {
-            return;
-        }
+      // Prevent re-processing the same status update
+      if (lastStatus === normalizedStatus) {
+        return;
+      }
+      lastIncidentStatusRef.current[docId] = normalizedStatus;
 
-        // Update the last known status for this document
-        lastIncidentStatusRef.current[docId] = normalizedStatus;
+      // Define status-to-message mapping
+      const statusTextMap = {
+        'acknowledged': 'has acknowledged',
+        'en-route': 'is en route',
+        'on-scene': 'is on scene',
+        'transferring': 'is transferring a patient',
+        'heading-back': 'is heading back',
+        'completed': 'has completed the mission',
+        'resolved': 'has completed the mission'
+        // Add other aliases like 'onscene', 'enroute' if needed
+      };
 
-        // Map statuses of interest to human text
-        const statusTextMap = {
-          'acknowledged': 'has acknowledged',
-          'on route': 'is on route',
-          'on-scene': 'is on scene',
-          'onscene': 'is on scene',
-          'transferring': 'is transferring a patient',
-          'heading-back': 'is heading back',
-          'completed': 'has completed the mission',
-          'resolved': 'has completed the mission'
-        };
+      const statusMessage = statusTextMap[normalizedStatus];
+      
+      // If the status is not one we care about, do nothing
+      if (!statusMessage) {
+        return;
+      }
+      
+      // --- All your notification and toast logic can now go here ---
+      const teamLabel = formatTeamLabel(data.respondingTeam || data.assignedTeam) || 'Team';
+      const reportLabel = data.reportId || docId;
+      const severity = String(data.emergencySeverity || data.severity || '').toLowerCase();
+      const toastType = severity === 'critical' ? 'danger' : (severity === 'high' ? 'warning' : 'info');
 
-        const statusMessage = statusTextMap[normalizedStatus];
-        if (!statusMessage) {
-            return;
-        }
-
-        // Normalize location for notifications
-        const locFromField = typeof data.location === 'string' ? JSON.parse(data.location) : data.location;
-        const locFromLatLng = (data.latitude && data.longitude)
-          ? { lat: Number(data.latitude), lng: Number(data.longitude) }
-          : undefined;
-        const location = locFromField || locFromLatLng;
-        const severity = data.emergencySeverity || data.severity || 'N/A';
-        const reporter = data.reporter || 'Unknown';
-        const emergencyType = data.emergencyType || 'Incident';
-        const acknowledgingUser = data.acknowledgedBy || 'Unknown';
-
-        // Add a notification for ALL new statuses, not just 'acknowledged'
-        const notificationItem = {
-          id: `${normalizedStatus}-${docId}-${Date.now()}`,
-          type: normalizedStatus,
-          title: `Status Update: ${normalizedStatus.replace(/-/g, ' ')}`,
-          details: `${emergencyType} status updated by ${acknowledgingUser}`,
-          severity,
-          reporter,
-          location,
-          timestamp: new Date().toISOString(),
-          responded: true
-        };
-        setNotifications(prev => [...prev, notificationItem]);
-
-        // Show a toast with formatted message
-        const teamRaw = data.respondingTeam || data.assignedTeam;
-        const teamLabel = formatTeamLabel(teamRaw) || 'Team';
-        const reportLabel = data.reportId || docId;
-
-        // Severity-driven toast type
-        const sev = String(data.emergencySeverity || data.severity || '').toLowerCase();
-        const sevType = sev === 'critical' ? 'danger' : (sev === 'high' ? 'warning' : 'info');
-
-        showToast({
-          text: `${teamLabel} ${statusMessage} for Report ${reportLabel}`,
-          type: sevType,
-          severity: sev,
-          onClick: () => {
-            setActiveView('report-logs-view');
-          }
-        });
+      // Show the toast for the status update
+      showToast({
+        text: `${teamLabel} ${statusMessage} for Report ${reportLabel}`,
+        type: toastType,
+        severity: severity,
+        onClick: () => setActiveView('report-logs-view')
       });
-    }, (error) => {
-      console.error('Error listening for incident updates:', error);
+      
+      // Also push an item to the notifications view
+      const location = data.location || (data.latitude && data.longitude ? { lat: Number(data.latitude), lng: Number(data.longitude) } : null);
+      
+      setNotifications(prev => [...prev, {
+        id: `${normalizedStatus}-${docId}-${Date.now()}`,
+        type: normalizedStatus,
+        title: `Status Update: ${data.status}`,
+        details: `Report ${reportLabel} status updated by ${data.acknowledgedBy || 'a team member'}`,
+        severity: severity,
+        reporter: data.reporter || 'Unknown',
+        location: location,
+        timestamp: new Date().toISOString(),
+        responded: true
+      }]);
     });
+  }, (error) => {
+    console.error('Error listening for incident updates:', error);
+  });
 
-    return () => unsubscribe();
-  }, [db]);
+  return () => unsubscribe();
+}, [db]); // Dependency array should be minimal
 
   const handleLogoutClick = () => setShowLogoutConfirm(true);
   
@@ -596,122 +583,10 @@ export default function DispatcherPage() {
     }
   }, []);
 
-  useEffect(() => {
-  const incidentsRef = collection(db, 'incidents');
-  const ackQuery = query(incidentsRef, where('status', '==', 'Acknowledged'));
-
-  const unsubscribe = onSnapshot(ackQuery, (snapshot) => {
-    snapshot.docChanges().forEach((dc) => {
-      const data = dc.doc.data();
-      const docId = dc.doc.id;
-
-      // Make a unique key per acknowledgement (doc + timestamp)
-      const ackAtIso = data.acknowledgedAt?.toDate
-        ? data.acknowledgedAt.toDate().toISOString()
-        : (data.acknowledgedAt || '');
-      const uniqueKey = `${docId}-${ackAtIso || 'noAckTime'}`;
-      if (acknowledgedSeen.current.has(uniqueKey)) return;
-      acknowledgedSeen.current.add(uniqueKey);
-
-      // Normalize location: either `location` object or `latitude/longitude` strings
-      const locFromField = typeof data.location === 'string' ? JSON.parse(data.location) : data.location;
-      const locFromLatLng = (data.latitude && data.longitude)
-        ? { lat: Number(data.latitude), lng: Number(data.longitude) }
-        : undefined;
-      const location = locFromField || locFromLatLng;
-
-      const severity = data.emergencySeverity || data.severity || 'N/A';
-      const reporter = data.reporter || 'Unknown';
-      const acknowledgingUser = data.acknowledgedBy || 'Unknown';
-      const emergencyType = data.emergencyType || 'Incident';
-
-      // Push a notification item (appears in Notifications view)
-      const notificationItem = {
-        id: `ack-${docId}-${Date.now()}`,
-        type: 'acknowledged',
-        title: 'Responder Acknowledged',
-        details: `${emergencyType} acknowledged by ${acknowledgingUser}`,
-        severity,
-        reporter,
-        location,
-        timestamp: ackAtIso || new Date().toISOString(),
-        responded: true
-      };
-      setNotifications(prev => [...prev, notificationItem]);
-
-      // Show a toast with formatted message
-      const teamRaw = data.respondingTeam || data.assignedTeam;
-      const teamLabel = formatTeamLabel(teamRaw) || 'Team';
-      const reportLabel = data.reportId || docId;
-      showToast({
-        text: `${teamLabel} has acknowledged Report ${reportLabel}`,
-        type: 'info',
-        severity: (data.emergencySeverity || data.severity || '').toLowerCase(),
-        onClick: () => {
-          setActiveView('report-logs-view');
-        }
-      });
-    });
-  }, (error) => {
-    console.error('Error listening for acknowledgements:', error);
-  });
-
-  return () => unsubscribe();
-}, [db]);
+  
 
   // Listen for general incident status changes to toast updates (en route, on scene, transferring, heading back, completed)
-  useEffect(() => {
-    const incidentsRef = collection(db, 'incidents');
-    const unsubscribe = onSnapshot(incidentsRef, (snapshot) => {
-      snapshot.docChanges().forEach((dc) => {
-        const data = dc.doc.data() || {};
-        const docId = dc.doc.id;
-        const rawStatus = String(data.status || '').toLowerCase();
-        const normalizedStatus = rawStatus
-          .replace(/\s+/g, '-')
-          .replace(/^in-progress$/, 'in-progress');
 
-        const lastStatus = lastIncidentStatusRef.current[docId];
-        if (lastStatus === normalizedStatus) return;
-        lastIncidentStatusRef.current[docId] = normalizedStatus;
-
-        // Map statuses of interest to human text
-        const statusTextMap = {
-          'acknowledged': 'has acknowledged',
-          'en-route': 'is en route',
-          'enroute': 'is en route',
-          'on-scene': 'is on scene',
-          'onscene': 'is on scene',
-          'transferring': 'is transferring a patient',
-          'heading-back': 'is heading back',
-          'completed': 'has completed the mission',
-          'resolved': 'has completed the mission'
-        };
-
-        if (!statusTextMap[normalizedStatus]) return;
-
-        const teamLabel = formatTeamLabel(data.respondingTeam || data.assignedTeam) || 'Team';
-        const reportLabel = data.reportId || docId;
-
-        // Severity-driven toast type
-        const sev = String(data.emergencySeverity || data.severity || '').toLowerCase();
-        const sevType = sev === 'critical' ? 'danger' : (sev === 'high' ? 'warning' : 'info');
-
-        showToast({
-          text: `${teamLabel} ${statusTextMap[normalizedStatus]} for Report ${reportLabel}`,
-          type: sevType,
-          severity: sev,
-          onClick: () => {
-            setActiveView('report-logs-view');
-          }
-        });
-      });
-    }, (error) => {
-      console.error('Error listening for incident updates:', error);
-    });
-
-    return () => unsubscribe();
-  }, [db]);
 
   const menuItems = [
     { id: 'map-view', icon: 'fa-map', label: 'Live Map' },

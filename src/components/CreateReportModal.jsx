@@ -9,6 +9,7 @@ import {
   serverTimestamp,
   doc,
   updateDoc,
+  Timestamp,
 } from 'firebase/firestore';
 import './modalstyles/CreateReportStyles.css';
 import {
@@ -26,6 +27,58 @@ import {
 export { emergencySeverityMap, emergencyTypeMap };
 
 const ROLE_KEYS = ['teamLeader', 'emt1', 'emt2', 'ambulanceDriver'];
+
+// Helper function to safely convert various date formats to JavaScript Date
+const parseDate = (dateValue) => {
+  if (!dateValue) return null;
+  
+  try {
+    // If it's a Firestore Timestamp
+    if (dateValue && typeof dateValue.toDate === 'function') {
+      return dateValue.toDate();
+    }
+    
+    // If it's already a Date object
+    if (dateValue instanceof Date) {
+      return isNaN(dateValue.getTime()) ? null : dateValue;
+    }
+    
+    // If it's a string or number, try to parse it
+    const parsed = new Date(dateValue);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  } catch (error) {
+    console.warn('Failed to parse date:', dateValue, error);
+    return null;
+  }
+};
+
+// Helper function to check if a responder is within their shift
+const isWithinShift = (responder) => {
+  if (!responder) return false;
+
+  const now = new Date();
+  const shiftStart = parseDate(responder.shiftStart);
+  const shiftEnd = parseDate(responder.shiftEnd);
+
+  // If no shift info, assume they're available
+  if (!shiftStart || !shiftEnd) {
+    return true;
+  }
+
+  // Check if current time is within shift
+  return now >= shiftStart && now <= shiftEnd;
+};
+
+// Helper function to check if responder is active/available
+const isResponderAvailable = (responder) => {
+  if (!responder) return false;
+  
+  // Normalize status casing
+  const status = (responder.status || '').toLowerCase();
+  const validStatuses = ['active', 'available'];
+  
+  return validStatuses.includes(status) && isWithinShift(responder);
+};
 
 // Google Maps geocoding function
 const geocodeWithGoogleMaps = async (locationText) => {
@@ -363,25 +416,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         setAllResponders(
           respondersSnapshot.docs
             .map(doc => ({ uid: doc.id, ...doc.data() }))
-            .filter(m => {
-              if (!m) return false;
-
-              // Normalize status casing
-              const status = (m.status || '').toLowerCase();
-
-              // Check shift times if they exist
-              const now = new Date();
-              const shiftStart = m.shiftStart ? new Date(m.shiftStart) : null;
-              const shiftEnd = m.shiftEnd ? new Date(m.shiftEnd) : null;
-
-              const withinShift =
-                shiftStart && shiftEnd
-                  ? now >= shiftStart && now <= shiftEnd
-                  : true; // if no shift info, keep them
-
-              return (status === 'active' || status === 'available') && withinShift;
-            })
- // ✅ only responders on duty
+            .filter(isResponderAvailable) // Use the helper function
         );
       } catch (err) {
         console.error('Failed to fetch teams or responders:', err);
@@ -522,24 +557,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           teamName: `${teamKey?.toUpperCase()} - ${shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}`,
           members: ROLE_KEYS
             .map(role => teamDetails?.[role])
-            .filter(m => {
-              if (!m) return false;
-
-              // Normalize status casing
-              const status = (m.status || '').toLowerCase();
-
-              // Check shift times if they exist
-              const now = new Date();
-              const shiftStart = m.shiftStart ? new Date(m.shiftStart) : null;
-              const shiftEnd = m.shiftEnd ? new Date(m.shiftEnd) : null;
-
-              const withinShift =
-                shiftStart && shiftEnd
-                  ? now >= shiftStart && now <= shiftEnd
-                  : true; // if no shift info, keep them
-
-              return (status === 'active' || status === 'available') && withinShift;
-            }) // ✅ only active/available
+            .filter(isResponderAvailable) // Use the helper function here too
         };
       }
 
@@ -562,15 +580,25 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         placeId: calculatedCoords.placeId || null,
         notes: form.notes || '',
         status: reportToEdit?.status || 'Pending',
-        timestamp: serverTimestamp(),
+        timestamp: serverTimestamp(), // This is correct - Firestore handles it
         respondingTeam: form.respondingTeam,
         teamData,
+        // Add creation timestamp in a more explicit way for client-side usage
+        createdAt: new Date().toISOString(),
       };
 
       let savedReport;
       if (reportToEdit?.id) {
         const docRef = doc(db, 'incidents', reportToEdit.id);
-        await updateDoc(docRef, incidentData);
+        // Don't update timestamp when editing, only add updatedAt
+        const updateData = {
+          ...incidentData,
+          updatedAt: new Date().toISOString(),
+        };
+        delete updateData.timestamp; // Keep original timestamp
+        delete updateData.createdAt; // Keep original createdAt
+        
+        await updateDoc(docRef, updateData);
         savedReport = { ...incidentData, id: reportToEdit.id, reportId: reportToEdit.reportId };
         setStatusMessage('✅ Report updated successfully!');
       } else {
