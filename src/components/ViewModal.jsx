@@ -159,8 +159,90 @@ export default function ViewModal({ isOpen, onClose, report }) {
             <div className="view-detail-label">Notes:</div>
             <div className="view-detail-value">{safeRender(report.notes)}</div>
           </div>
+
+          {/* Attachments Section */}
+          {report.attachments && report.attachments.length > 0 && (
+            <div className="view-detail-row">
+              <div className="view-detail-label">Attachments:</div>
+              <div className="view-detail-value">
+                <div className="attachments-container">
+                  {report.attachments.map((attachment, index) => (
+                    <div key={index} className="attachment-item">
+                      <div className="attachment-info">
+                        <i className="fas fa-file-alt attachment-icon"></i>
+                        <span className="attachment-name">{attachment.name || `Attachment ${index + 1}`}</span>
+                        <span className="attachment-size">
+                          {attachment.size ? `(${formatFileSize(attachment.size)})` : ''}
+                        </span>
+                      </div>
+                      <button 
+                        className="download-btn"
+                        onClick={() => downloadAttachment(attachment)}
+                        title="Download attachment"
+                      >
+                        <i className="fas fa-download"></i>
+                        Download
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+// Helper function to format file size
+function formatFileSize(bytes) {
+  if (!bytes) return '';
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  if (bytes === 0) return '0 Bytes';
+  const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+  return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+// Helper function to download attachment
+function downloadAttachment(attachment) {
+  try {
+    // If attachment has a URL, download from URL
+    if (attachment.url) {
+      const link = document.createElement('a');
+      link.href = attachment.url;
+      link.download = attachment.name || 'attachment';
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+    // If attachment has data (base64), download from data
+    else if (attachment.data) {
+      const link = document.createElement('a');
+      link.href = attachment.data;
+      link.download = attachment.name || 'attachment';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+    // If attachment has file object, download from file
+    else if (attachment.file) {
+      const url = URL.createObjectURL(attachment.file);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = attachment.name || attachment.file.name || 'attachment';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+    else {
+      console.warn('No valid attachment data found:', attachment);
+      alert('Unable to download attachment: No valid data found');
+    }
+  } catch (error) {
+    console.error('Error downloading attachment:', error);
+    alert('Error downloading attachment. Please try again.');
+  }
 }

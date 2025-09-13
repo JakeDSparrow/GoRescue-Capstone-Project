@@ -168,25 +168,17 @@ export const statusMap = {
     color: '#f39c12',
     label: 'Pending',
   },
-  acknowledged: {
-    color: '#606cac',
-    label: 'Acknowledged'
-  },
   'in-progress': {
     color: '#3498db',
     label: 'In Progress',
   },
-  responding: {
+  'partially-complete': {
     color: '#9b59b6',
-    label: 'Responding',
+    label: 'Partially Complete',
   },
   completed: {
     color: '#2ecc71',
     label: 'Completed',
-  },
-  resolved: {
-    color: '#27ae60',
-    label: 'Resolved',
   },
 };
 

@@ -15,6 +15,7 @@ import Logo from '../assets/GoRescueLogo.webp';
 import L from 'leaflet';
 import { emergencySeverityMap } from '../constants/dispatchConstants';
 
+
 export default function DispatcherPage() {
   const [userName, setUserName] = useState('');
   const [activeView, setActiveView] = useState('map-view');
@@ -239,7 +240,6 @@ export default function DispatcherPage() {
     checkUserProfile();
   }, [db]);
 
-
   // Close context menu when clicking elsewhere
   useEffect(() => {
     const handleClickOutside = () => {
@@ -448,12 +448,8 @@ useEffect(() => {
       const statusTextMap = {
         'acknowledged': 'has acknowledged',
         'en-route': 'is en route',
-        'on-scene': 'is on scene',
         'transferring': 'is transferring a patient',
-        'heading-back': 'is heading back',
         'completed': 'has completed the mission',
-        'resolved': 'has completed the mission'
-        // Add other aliases like 'onscene', 'enroute' if needed
       };
 
       const statusMessage = statusTextMap[normalizedStatus];

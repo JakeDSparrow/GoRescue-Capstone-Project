@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { emergencySeverityMap, statusMap } from '../../constants/dispatchConstants';
-import useFormatDate from '../../hooks/useFormatDate';
 import ViewModal from '../../components/ViewModal';
 import CreateRescueModal, { emergencyTypeMap } from '../../components/CreateReportModal';
 import '../../components/modalstyles/ViewModalStyles.css';
-import { Timestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot } from 'firebase/firestore';
+import { db } from '../../firebase';
 
 function formatRespondingTeam(teamKey) {
   if (!teamKey) return 'N/A';
@@ -47,77 +47,56 @@ function parseFirestoreDate(timestamp) {
   }
 }
 
-function safeFormatDate(timestamp, formatDateTime) {
-  try {
-    const parsedDate = parseFirestoreDate(timestamp);
-    if (!parsedDate) return 'N/A';
-    return formatDateTime(parsedDate);
-  } catch (error) {
-    console.warn('Error formatting date:', timestamp, error);
-    return 'Invalid Date';
-  }
-}
-
-export default function ReportLogsView({ reportLogs = [], setReportLogs, onUpdate }) {
-  const { formatDateTime } = useFormatDate();
+export default function ReportLogsView({ onUpdate }) {
+  const [reportLogs, setReportLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
 
-  // Remove or comment out test data for production
- useEffect(() => {
-  // Only add test data in development when no real data exists
-  if (process.env.NODE_ENV === 'development' && reportLogs.length === 0) {
-    const testLog = {
-      id: 'TEST-001',
-      reportId: 'TEST-001',
-      emergencyType: 'medical',
-      emergencySeverity: 'critical',
-      reporter: 'Test Reporter',
-      contact: '09999999999',
-      location: { lat: 14.59, lng: 120.98 },
-      timestamp: Timestamp.fromDate(new Date()), // ✅ Firestore Timestamp
-      respondingTeam: 'alpha-dayShift',
-      status: 'pending', // lowercase to match your filter
-      locationPrecision: 'unknown',
-      locationText: 'Test Location',
-      matchedLocation: 'Test Location',
-      placeId: null,
-      notes: '',
-      createdAt: new Date().toISOString(), // optional client-side field
-    };
-
-    setReportLogs([testLog]);
-  }
-}, [reportLogs.length, setReportLogs]);
-
-  // Debug logging - remove in production
+  // Fetch data directly from Firestore
   useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('=== REPORT LOGS DEBUG ===');
-      console.log('Total logs:', reportLogs.length);
-      reportLogs.forEach((log, index) => {
-        console.log(`Report ${index}:`, {
-          id: log.id || log.reportId,
-          status: log.status,
-          statusType: typeof log.status,
-          timestamp: log.timestamp,
-          timestampType: typeof log.timestamp,
-          isFirebaseTimestamp: log.timestamp?.toDate ? true : false
+    const unsubscribe = onSnapshot(
+      query(collection(db, "incidents")),
+      (snapshot) => {
+        const incidents = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          incidents.push({
+            id: doc.id,
+            ...data,
+            timestamp: data.timestamp?.toDate() || new Date(),
+            acknowledgedAt: data.acknowledgedAt?.toDate() || null,
+            completedAt: data.completedAt?.toDate() || null,
+          });
         });
-      });
-    }
-  }, [reportLogs]);
+        setReportLogs(incidents);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error fetching incidents:', error);
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
 
   // Filter and sort active reports
   const activeReports = React.useMemo(() => {
-    const activeStatuses = ['pending', 'acknowledged', 'in progress'];
-    
     return reportLogs
       .filter((log) => {
         if (!log) return false;
-        const status = (log.status || '').toLowerCase().trim();
-        return activeStatuses.includes(status);
+        
+        // If status field exists, use it
+        if (log.status) {
+          const status = (log.status || '').trim();
+          const activeStatuses = ['Pending', 'In Progress', 'Partially Complete', 'Completed'];
+          return activeStatuses.includes(status);
+        }
+        
+        // If no status field, show all reports regardless of status
+        return true;
       })
       .sort((a, b) => {
         try {
@@ -135,6 +114,29 @@ export default function ReportLogsView({ reportLogs = [], setReportLogs, onUpdat
       });
   }, [reportLogs]);
 
+  // Debug logging - remove in production
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('=== REPORT LOGS DEBUG ===');
+      console.log('Total logs:', reportLogs.length);
+      console.log('Active reports after filtering:', activeReports.length);
+      console.log('Raw reportLogs data:', reportLogs);
+      reportLogs.forEach((log, index) => {
+        console.log(`Report ${index}:`, {
+          id: log.id || log.reportId,
+          status: log.status,
+          statusType: typeof log.status,
+          timestamp: log.timestamp,
+          timestampType: typeof log.timestamp,
+          isFirebaseTimestamp: log.timestamp?.toDate ? true : false,
+          willShow: log.status ? ['Pending', 'In Progress', 'Partially Complete', 'Completed'].includes(log.status) : 'No status field',
+          acknowledgedAt: log.acknowledgedAt,
+          completedAt: log.completedAt
+        });
+      });
+    }
+  }, [reportLogs, activeReports]);
+
   const handleView = (log) => {
     setSelectedReport(log);
     setViewModalOpen(true);
@@ -147,6 +149,18 @@ export default function ReportLogsView({ reportLogs = [], setReportLogs, onUpdat
 
   const closeViewModal = () => setViewModalOpen(false);
   const closeEditModal = () => setEditModalOpen(false);
+
+  if (loading) {
+    return (
+      <div className="card">
+        <h2>Report Logs</h2>
+        <div style={{ textAlign: 'center', padding: '40px' }}>
+          <i className="fas fa-spinner fa-spin" style={{ fontSize: '24px', marginBottom: '10px' }}></i>
+          <p>Loading reports...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="card">
@@ -161,17 +175,26 @@ export default function ReportLogsView({ reportLogs = [], setReportLogs, onUpdat
               <th>Reported By</th>
               <th>Responding Team</th>
               <th>Status</th>
-              <th>Timestamp</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {activeReports.length === 0 ? (
               <tr className="empty-row">
-                <td colSpan="8">
+                <td colSpan="7">
                   <div className="empty-state">
                     <i className="fas fa-inbox" />
-                    <p>No active reports</p>
+                    <p>No reports found</p>
+                    <small>Total reports in system: {reportLogs.length}</small>
+                    {process.env.NODE_ENV === 'development' && (
+                      <div style={{ marginTop: '10px', fontSize: '12px', color: '#666' }}>
+                        <p>Debug Info:</p>
+                        <p>• reportLogs type: {typeof reportLogs}</p>
+                        <p>• reportLogs length: {reportLogs?.length || 0}</p>
+                        <p>• First report status: {reportLogs?.[0]?.status || 'undefined'}</p>
+                        <p>• Check console for detailed logs</p>
+                      </div>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -210,8 +233,38 @@ export default function ReportLogsView({ reportLogs = [], setReportLogs, onUpdat
                   <td>{formatRespondingTeam(log.respondingTeam)}</td>
                   <td>
                     {(() => {
-                      const statusKey = (log.status || '').toLowerCase().trim();
+                      let displayStatus = 'N/A';
+                      let statusKey = '';
+                      
+                      // If status field exists, use it
+                      if (log.status) {
+                        displayStatus = log.status;
+                        const statusMapping = {
+                          'Pending': 'pending',
+                          'In Progress': 'in-progress', 
+                          'Partially Complete': 'partially-complete',
+                          'Completed': 'completed'
+                        };
+                        statusKey = statusMapping[log.status] || (log.status || '').toLowerCase().replace(/\s+/g, '-').trim();
+                      } else {
+                        // Determine status from timestamps
+                        const hasAcknowledged = log.acknowledgedAt;
+                        const hasCompleted = log.completedAt;
+                        
+                        if (hasCompleted) {
+                          displayStatus = 'Completed';
+                          statusKey = 'completed';
+                        } else if (hasAcknowledged) {
+                          displayStatus = 'In Progress';
+                          statusKey = 'in-progress';
+                        } else {
+                          displayStatus = 'Pending';
+                          statusKey = 'pending';
+                        }
+                      }
+                      
                       const statusMeta = statusMap && statusMap[statusKey];
+                      
                       return (
                         <span
                           className="status-badge"
@@ -222,19 +275,24 @@ export default function ReportLogsView({ reportLogs = [], setReportLogs, onUpdat
                             borderRadius: '4px',
                           }}
                         >
-                          {(statusMeta?.label) || log.status || 'N/A'}
+                          {(statusMeta?.label) || displayStatus}
                         </span>
                       );
                     })()}
                   </td>
-                  <td>{safeFormatDate(log.timestamp, formatDateTime)}</td>
                   <td>
                     <button className="btn-action btn-view" onClick={() => handleView(log)}>
                       <i className="fas fa-eye" /> View
                     </button>
-                    <button className="btn-action btn-edit" onClick={() => handleEdit(log)}>
-                      <i className="fas fa-edit" /> Edit
-                    </button>
+                    {(() => {
+                      // Determine if report is completed
+                      const isCompleted = log.status === 'Completed' || log.completedAt;
+                      return !isCompleted && (
+                        <button className="btn-action btn-edit" onClick={() => handleEdit(log)}>
+                          <i className="fas fa-edit" /> Edit
+                        </button>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))

@@ -48,9 +48,8 @@
   background: #ffffff;
   flex-shrink: 0;
 
-  /* Sticky header */
-  position: sticky;
-  top: 0;
+  /* Fixed header */
+  position: relative;
   z-index: 10;
 }
 
@@ -88,7 +87,6 @@
   overflow-y: auto; /* Scrollable body */
   flex-grow: 1;
   background: #ffffff;
-  scroll-behavior: smooth;
 }
 
 .form-group {
@@ -264,9 +262,8 @@
   background: #f9fafb;
   flex-shrink: 0;
 
-  /* Sticky footer */
-  position: sticky;
-  bottom: 0;
+  /* Fixed footer */
+  position: relative;
   z-index: 10;
 }
 

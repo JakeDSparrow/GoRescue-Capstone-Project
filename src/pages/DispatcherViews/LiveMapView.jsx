@@ -208,7 +208,7 @@ useEffect(() => {
   const db = getFirestore();
   const incidentsRef = collection(db, "incidents");
 
-  const activeStatuses = ["pending", "acknowledged", "in progress"]; // lowercase for comparison
+  const activeStatuses = ["pending", "in-progress", "partially-complete"]; // lowercase for comparison
 
   const unsubscribe = onSnapshot(incidentsRef, (snapshot) => {
     markersRef.current.clearLayers(); // clear old markers
