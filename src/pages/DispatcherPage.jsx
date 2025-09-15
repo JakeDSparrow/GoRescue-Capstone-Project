@@ -607,7 +607,7 @@ useEffect(() => {
     />,
     'report-logs-view': <ReportLogsView reportLogs={reportLogs} setReportLogs={setReportLogs} formatDateTime={formatDateTime} />,
     'team-organizer-view': <TeamOrganizerView responders={currentTeam} />,
-    'incident-history-view': <IncidentHistoryView reportLogs={reportLogs} formatDateTime={formatDateTime} />,
+    'incident-history-view': <IncidentHistoryView />,
     'team-status-view': <TeamStatusView />
   };
 

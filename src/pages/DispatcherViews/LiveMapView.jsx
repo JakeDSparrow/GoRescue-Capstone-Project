@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet.gridlayer.googlemutant';
-import { getFirestore, collection, query, onSnapshot, where } from "firebase/firestore";
+import { getFirestore, collection, onSnapshot} from "firebase/firestore";
 import { emergencySeverityMap, emergencyTypeMap } from '../../constants/dispatchConstants';
 import 'leaflet/dist/leaflet.css';
 
