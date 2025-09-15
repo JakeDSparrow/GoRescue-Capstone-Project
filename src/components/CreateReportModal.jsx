@@ -11,6 +11,7 @@ import {
   updateDoc,
   Timestamp,
 } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import './modalstyles/CreateReportStyles.css';
 import {
   emergencySeverityMap,
@@ -51,6 +52,8 @@ const parseDate = (dateValue) => {
     return null;
   }
 };
+
+const functions = getFunctions();
 
 // Helper function to check if a responder is within their shift
 const isWithinShift = (responder) => {
@@ -523,110 +526,128 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    if (!form.reporterName || !form.contact || !form.location || !form.respondingTeam || !form.incidentCode) {
-      setStatusMessage('❌ Please fill in all required fields and ensure a valid Incident Code is generated.');
-      return;
-    }
+  if (!form.reporterName || !form.contact || !form.location || !form.respondingTeam || !form.incidentCode) {
+    setStatusMessage('❌ Please fill in all required fields and ensure a valid Incident Code is generated.');
+    return;
+  }
 
-    if (!calculatedCoords) {
-      setStatusMessage('❌ Please select a location on the map or search for a location first.');
-      return;
-    }
+  if (!calculatedCoords) {
+    setStatusMessage('❌ Please select a location on the map or search for a location first.');
+    return;
+  }
 
-    setLoading(true);
-    setStatusMessage('💾 Saving report...');
+  setLoading(true);
+  setStatusMessage('💾 Saving report...');
 
-    try {
-      let teamData;
-      if (form.respondingTeam === 'all-responders') {
-        teamData = {
-          teamName: 'All Responders',
-          members: allResponders.map(r => ({ uid: r.uid, fullName: r.fullName }))
-        };
-      } else {
-        const [teamKey, shiftKey] = form.respondingTeam.split('-');
-        const teamDetails = teams[teamKey] && teams[teamKey][shiftKey];
-        if (!teamDetails) {
-          setStatusMessage(`❌ Selected team (${teamKey} - ${shiftKey}) is not available.`);
-          setLoading(false);
-          return;
-        }
-        teamData = {
-          teamName: `${teamKey?.toUpperCase()} - ${shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}`,
-          members: ROLE_KEYS
-            .map(role => teamDetails?.[role])
-            .filter(isResponderAvailable) // Use the helper function here too
-        };
-      }
-
-      const categoryMap = { 'ME': 'medical', 'AC': 'accident', 'NA': 'natural' };
-      const severityMap = { '@C': 'critical', '@H': 'high', '@M': 'moderate', '@L': 'low' };
-
-      const incidentData = {
-        incidentCode: form.incidentCode,
-        emergencyType: categoryMap[form.emergencyCategory] || 'medical',
-        emergencySeverity: severityMap[form.severityCode] || 'low',
-        reporter: form.reporterName,
-        contact: form.contact,
-        location: { 
-          lat: calculatedCoords.lat, 
-          lng: calculatedCoords.lng 
-        },
-        locationText: form.location,
-        locationPrecision: calculatedCoords.precision || 'unknown',
-        matchedLocation: calculatedCoords.matchedLocation || form.location,
-        placeId: calculatedCoords.placeId || null,
-        notes: form.notes || '',
-        status: reportToEdit?.status || 'Pending',
-        timestamp: serverTimestamp(), // This is correct - Firestore handles it
-        respondingTeam: form.respondingTeam,
-        teamData,
-        // Add creation timestamp in a more explicit way for client-side usage
-        createdAt: new Date().toISOString(),
+  try {
+    let teamData;
+    if (form.respondingTeam === 'all-responders') {
+      teamData = {
+        teamName: 'All Responders',
+        members: allResponders.map(r => ({ uid: r.uid, fullName: r.fullName }))
       };
-
-      let savedReport;
-      if (reportToEdit?.id) {
-        const docRef = doc(db, 'incidents', reportToEdit.id);
-        // Don't update timestamp when editing, only add updatedAt
-        const updateData = {
-          ...incidentData,
-          updatedAt: new Date().toISOString(),
-        };
-        delete updateData.timestamp; // Keep original timestamp
-        delete updateData.createdAt; // Keep original createdAt
-        
-        await updateDoc(docRef, updateData);
-        savedReport = { ...incidentData, id: reportToEdit.id, reportId: reportToEdit.reportId };
-        setStatusMessage('✅ Report updated successfully!');
-      } else {
-        const incidentsRef = collection(db, 'incidents');
-        const countSnapshot = await getDocs(incidentsRef);
-        const reportId = formatReportId(countSnapshot.size + 1);
-        const docRef = await addDoc(incidentsRef, { ...incidentData, reportId });
-        savedReport = { ...incidentData, id: docRef.id, reportId };
-        setStatusMessage('✅ Report created successfully!');
+    } else {
+      const [teamKey, shiftKey] = form.respondingTeam.split('-');
+      const teamDetails = teams[teamKey] && teams[teamKey][shiftKey];
+      if (!teamDetails) {
+        setStatusMessage(`❌ Selected team (${teamKey} - ${shiftKey}) is not available.`);
+        setLoading(false);
+        return;
       }
-
-      onReportCreated?.(savedReport);
-      setTimeout(() => {
-        onClose();
-        setStatusMessage('');
-      }, 2000);
-      
-    } catch (err) {
-      console.error('Error saving report:', err);
-      setStatusMessage('❌ Error saving report. Please try again.');
-    } finally {
-      setLoading(false);
+      teamData = {
+        teamName: `${teamKey?.toUpperCase()} - ${shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}`,
+        members: ROLE_KEYS
+          .map(role => teamDetails?.[role])
+          .filter(isResponderAvailable)
+      };
     }
-  };
+
+    const categoryMap = { 'ME': 'medical', 'AC': 'accident', 'NA': 'natural' };
+    const severityMap = { '@C': 'critical', '@H': 'high', '@M': 'moderate', '@L': 'low' };
+
+    const incidentData = {
+      incidentCode: form.incidentCode,
+      emergencyType: categoryMap[form.emergencyCategory] || 'medical',
+      emergencySeverity: severityMap[form.severityCode] || 'low',
+      reporter: form.reporterName,
+      contact: form.contact,
+      location: { 
+        lat: calculatedCoords.lat, 
+        lng: calculatedCoords.lng 
+      },
+      locationText: form.location,
+      locationPrecision: calculatedCoords.precision || 'unknown',
+      matchedLocation: calculatedCoords.matchedLocation || form.location,
+      placeId: calculatedCoords.placeId || null,
+      notes: form.notes || '',
+      status: reportToEdit?.status || 'Pending',
+      timestamp: serverTimestamp(),
+      respondingTeam: form.respondingTeam,
+      teamData,
+      createdAt: new Date().toISOString(),
+    };
+
+    let savedReport;
+    if (reportToEdit?.id) {
+      const docRef = doc(db, 'incidents', reportToEdit.id);
+      const updateData = {
+        ...incidentData,
+        updatedAt: new Date().toISOString(),
+      };
+      delete updateData.timestamp;
+      delete updateData.createdAt;
+      
+      await updateDoc(docRef, updateData);
+      savedReport = { ...incidentData, id: reportToEdit.id, reportId: reportToEdit.reportId };
+      setStatusMessage('✅ Report updated successfully!');
+    } else {
+      const incidentsRef = collection(db, 'incidents');
+      const countSnapshot = await getDocs(incidentsRef);
+      const reportId = formatReportId(countSnapshot.size + 1);
+      const docRef = await addDoc(incidentsRef, { ...incidentData, reportId });
+      savedReport = { ...incidentData, id: docRef.id, reportId };
+      setStatusMessage('✅ Report created successfully!');
+
+      // 🚨 NEW: Send push notification for new incidents only
+      try {
+        const sendNotification = httpsCallable(functions, 'sendIncidentNotification');
+        const result = await sendNotification({
+          incidentCode: savedReport.incidentCode,
+          emergencyType: savedReport.emergencyType,
+          emergencySeverity: savedReport.emergencySeverity,
+          location: savedReport.locationText,
+          teamData: savedReport.teamData,
+          coordinates: savedReport.location
+        });
+        
+        console.log('Push notification sent:', result.data);
+        setStatusMessage('✅ Report created and team notified successfully!');
+      } catch (notificationError) {
+        console.error('Error sending push notification:', notificationError);
+        // Don't fail the entire operation if notification fails
+        setStatusMessage('✅ Report created successfully! (Notification may have failed)');
+      }
+    }
+
+    onReportCreated?.(savedReport);
+    setTimeout(() => {
+      onClose();
+      setStatusMessage('');
+    }, 2000);
+    
+  } catch (err) {
+    console.error('Error saving report:', err);
+    setStatusMessage('❌ Error saving report. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   if (!isOpen) return null;
   const isEditing = !!reportToEdit;
-  const availableSubtypes = EMERGENCY_SUBCATEGORIES[form.emergencyCategory] || {};
+  const availableSubtypes = EMERGENCY_SUBCATEGORIES[form.emergencyCategory] || {};       
 
   return (
     <div className="create-modal-overlay" role="dialog" aria-modal="true">
