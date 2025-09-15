@@ -91,7 +91,8 @@ export default function ReportLogsView({ onUpdate }) {
         // If status field exists, use it
         if (log.status) {
           const status = (log.status || '').trim();
-          const activeStatuses = ['Pending', 'In Progress', 'Partially Complete', 'Completed'];
+          // FIXED: Added 'Acknowledged' to active statuses
+          const activeStatuses = ['Pending', 'Acknowledged', 'In Progress', 'Partially Complete', 'Completed'];
           return activeStatuses.includes(status);
         }
         
@@ -129,7 +130,7 @@ export default function ReportLogsView({ onUpdate }) {
           timestamp: log.timestamp,
           timestampType: typeof log.timestamp,
           isFirebaseTimestamp: log.timestamp?.toDate ? true : false,
-          willShow: log.status ? ['Pending', 'In Progress', 'Partially Complete', 'Completed'].includes(log.status) : 'No status field',
+          willShow: log.status ? ['Pending', 'Acknowledged', 'In Progress', 'Partially Complete', 'Completed'].includes(log.status) : 'No status field',
           acknowledgedAt: log.acknowledgedAt,
           completedAt: log.completedAt
         });
@@ -239,15 +240,17 @@ export default function ReportLogsView({ onUpdate }) {
                       // If status field exists, use it
                       if (log.status) {
                         displayStatus = log.status;
+                        // FIXED: Added 'Acknowledged' to status mapping
                         const statusMapping = {
                           'Pending': 'pending',
+                          'Acknowledged': 'acknowledged',
                           'In Progress': 'in-progress', 
                           'Partially Complete': 'partially-complete',
                           'Completed': 'completed'
                         };
                         statusKey = statusMapping[log.status] || (log.status || '').toLowerCase().replace(/\s+/g, '-').trim();
                       } else {
-                        // Determine status from timestamps
+                        // FIXED: Improved status determination from timestamps
                         const hasAcknowledged = log.acknowledgedAt;
                         const hasCompleted = log.completedAt;
                         
@@ -255,8 +258,10 @@ export default function ReportLogsView({ onUpdate }) {
                           displayStatus = 'Completed';
                           statusKey = 'completed';
                         } else if (hasAcknowledged) {
-                          displayStatus = 'In Progress';
-                          statusKey = 'in-progress';
+                          // Check if there's additional progress beyond acknowledgment
+                          // You might want to add more logic here based on your business rules
+                          displayStatus = 'Acknowledged';
+                          statusKey = 'acknowledged';
                         } else {
                           displayStatus = 'Pending';
                           statusKey = 'pending';
