@@ -8,8 +8,7 @@ import {
   getDocs,
   serverTimestamp,
   doc,
-  updateDoc,
-  Timestamp,
+  updateDoc
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import './modalstyles/CreateReportStyles.css';
@@ -560,8 +559,13 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         teamName: `${teamKey?.toUpperCase()} - ${shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}`,
         members: ROLE_KEYS
           .map(role => teamDetails?.[role])
-          .filter(isResponderAvailable)
-      };
+          .filter(member => member && member.uid && isResponderAvailable(member))
+          .map(member => ({ uid: member.uid, fullName: member.fullName }))
+      }; //Will fiter out who receives the notifs
+
+      // Debug logging to verify correct team targeting
+      console.log('Selected team:', form.respondingTeam);
+      console.log('Team members being notified:', teamData.members.map(m => `${m.fullName} (${m.uid})`));
     }
 
     const categoryMap = { 'ME': 'medical', 'AC': 'accident', 'NA': 'natural' };
