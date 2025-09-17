@@ -149,7 +149,6 @@ export default function LiveMapView({ mapRef, notifications = [], reportLogs = [
     return () => unsubscribe(); // Cleanup listener on component unmount
   }, [mapRef, notifications, reportLogs]); // Rerun if map is ready or props change
 
-
   return (
     <div className="map-container">
       <div id="map" className="leaflet-map" />

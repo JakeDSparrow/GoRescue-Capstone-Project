@@ -83,37 +83,28 @@ export default function ReportLogsView({ onUpdate }) {
   }, []);
 
   // Filter and sort active reports
-  const activeReports = React.useMemo(() => {
-    return reportLogs
-      .filter((log) => {
-        if (!log) return false;
-        
-        // If status field exists, use it
-        if (log.status) {
-          const status = (log.status || '').trim();
-          // FIXED: Added 'Acknowledged' to active statuses
-          const activeStatuses = ['Pending', 'Acknowledged', 'In Progress', 'Partially Complete', 'Completed'];
-          return activeStatuses.includes(status);
-        }
-        
-        // If no status field, show all reports regardless of status
-        return true;
-      })
-      .sort((a, b) => {
-        try {
-          const dateA = parseFirestoreDate(a.timestamp);
-          const dateB = parseFirestoreDate(b.timestamp);
-          
-          const timeA = dateA ? dateA.getTime() : 0;
-          const timeB = dateB ? dateB.getTime() : 0;
-          
-          return timeB - timeA; // Most recent first
-        } catch (error) {
-          console.warn('Error sorting reports by timestamp:', error);
-          return 0;
-        }
-      });
-  }, [reportLogs]);
+const activeReports = React.useMemo(() => {
+  return reportLogs
+    .filter((log) => {
+      if (!log) return false;
+      // Normalize status to handle case variations
+      const status = (log.status || '').trim().toLowerCase();
+      const activeStatuses = ['pending', 'acknowledged', 'in progress', 'partially complete', 'completed'];
+      return !log.status || activeStatuses.includes(status);
+    })
+    .sort((a, b) => {
+      try {
+        const dateA = parseFirestoreDate(a.timestamp);
+        const dateB = parseFirestoreDate(b.timestamp);
+        const timeA = dateA ? dateA.getTime() : 0;
+        const timeB = dateB ? dateB.getTime() : 0;
+        return timeB - timeA; // Most recent first
+      } catch (error) {
+        console.warn('Error sorting reports by timestamp:', error);
+        return 0;
+      }
+    });
+}, [reportLogs]);
 
   // Debug logging - remove in production
   useEffect(() => {
@@ -240,7 +231,6 @@ export default function ReportLogsView({ onUpdate }) {
                       // If status field exists, use it
                       if (log.status) {
                         displayStatus = log.status;
-                        // FIXED: Added 'Acknowledged' to status mapping
                         const statusMapping = {
                           'Pending': 'pending',
                           'Acknowledged': 'acknowledged',
