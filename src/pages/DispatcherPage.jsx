@@ -40,6 +40,7 @@ export default function DispatcherPage() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [contextMenu, setContextMenu] = useState({ show: false, x: 0, y: 0, menuItem: null });
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   const db = getFirestore();
   const notificationAudio = useRef(new Audio(alertSound));
@@ -258,7 +259,30 @@ export default function DispatcherPage() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  // Update current time every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, []);
+
   const isMobileSidebarOpen = !sidebarCollapsed && viewportWidth <= 1024;
+
+  // Helper function to format time and date in Philippine Standard Time
+  const formatTimeAndDate = (date) => {
+    return date.toLocaleString('en-US', {
+      timeZone: 'Asia/Manila',
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
 
   const startHighlightTimer = (id) => {
     if (highlightTimers.current[id]) return;
@@ -618,6 +642,10 @@ useEffect(() => {
           <div className="menu-toggle" onClick={toggleSidebar} aria-label="Toggle sidebar" role="button" tabIndex={0}><i className="fas fa-bars" /></div>
           <img src={Logo} alt="Victoria Rescue Logo" className="logo-small" />
           <div className="user-menu">
+            <div className="time-date-display">
+              <i className="fas fa-clock" style={{ marginRight: '6px', color: '#6c8c44' }} />
+              <span className="time-date-text">{formatTimeAndDate(currentTime)} PST</span>
+            </div>
             <span className="user-name">
               <i className="fas fa-user-circle" style={{ marginRight: '6px' }} />
               {userName}

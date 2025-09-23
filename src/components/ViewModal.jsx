@@ -10,6 +10,22 @@ function formatRespondingTeam(teamKey) {
   return `Team ${team.charAt(0).toUpperCase() + team.slice(1)}`;
 }
 
+function formatMultipleTeams(respondingTeams, teamData) {
+  if (!respondingTeams || respondingTeams.length === 0) return 'N/A';
+  
+  // Handle legacy single team format
+  if (typeof respondingTeams === 'string') {
+    return formatRespondingTeam(respondingTeams);
+  }
+  
+  // Handle new multiple teams format
+  if (Array.isArray(respondingTeams)) {
+    return respondingTeams.map(teamKey => formatRespondingTeam(teamKey)).join(', ');
+  }
+  
+  return 'N/A';
+}
+
 function getSeverityClass(severity) {
   if (!severity) return '';
   const severityLower = severity.toLowerCase();
@@ -124,11 +140,34 @@ export default function ViewModal({ isOpen, onClose, report }) {
           )}
 
           <div className="view-detail-row">
-            <div className="view-detail-label">Responding Team:</div>
-            <div className="view-detail-value">{formatRespondingTeam(report.respondingTeam)}</div>
+            <div className="view-detail-label">Responding Teams:</div>
+            <div className="view-detail-value">{formatMultipleTeams(report.respondingTeams || report.respondingTeam, report.teamData)}</div>
           </div>
 
-          {report.teamData?.members?.length > 0 && (
+          {report.teamData && Array.isArray(report.teamData) && report.teamData.length > 0 && (
+            <div className="view-detail-row">
+              <div className="view-detail-label">Team Details:</div>
+              <div className="view-detail-value">
+                {report.teamData.map((team, index) => (
+                  <div key={index} className="team-detail-section">
+                    <h4>{team.teamName}</h4>
+                    {team.members && team.members.length > 0 && (
+                      <ul>
+                        {team.members.map(member => (
+                          <li key={member.uid}>
+                            {member.fullName} ({member.role || 'Responder'}) - {member.phone || member.contact || 'N/A'}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Legacy single team data support */}
+          {report.teamData?.members?.length > 0 && !Array.isArray(report.teamData) && (
             <div className="view-detail-row">
               <div className="view-detail-label">Team Members:</div>
               <div className="view-detail-value">
@@ -140,6 +179,13 @@ export default function ViewModal({ isOpen, onClose, report }) {
                   ))}
                 </ul>
               </div>
+            </div>
+          )}
+
+          {report.createdByName && (
+            <div className="view-detail-row">
+              <div className="view-detail-label">Created By:</div>
+              <div className="view-detail-value">{report.createdByName}</div>
             </div>
           )}
 

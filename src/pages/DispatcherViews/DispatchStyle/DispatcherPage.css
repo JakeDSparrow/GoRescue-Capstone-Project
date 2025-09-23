@@ -78,6 +78,19 @@
   color: #2c3e50;
 }
 
+.time-date-display {
+  display: flex;
+  align-items: center;
+  font-size: 0.85rem;
+  color: #6c8c44;
+  font-weight: 500;
+  margin-right: 16px;
+}
+
+.time-date-text {
+  white-space: nowrap;
+}
+
 .notification-badge-sidebar {
   background-color: red;
   color: white;
@@ -324,6 +337,13 @@
   border: 2px solid #6c8c44;
   background-color: #f8faf5;
   box-shadow: 0 0 20px rgba(108, 140, 68, 0.25);
+}
+
+/* On Call Deck Highlight */
+.deck-card.oncall {
+  border: 2px solid #2563eb;
+  background-color: #f0f4ff;
+  box-shadow: 0 0 20px rgba(37, 99, 235, 0.25);
 }
 
 /* Deck Header */

@@ -8,7 +8,8 @@ import {
   getDocs,
   serverTimestamp,
   doc,
-  updateDoc
+  updateDoc,
+  getDoc,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import './modalstyles/CreateReportStyles.css';
@@ -23,10 +24,12 @@ import {
   convertLegacyToNewType,
   convertLegacySeverity,
 } from '../constants/dispatchConstants';
+import { useAuth } from '../context/AuthContext';
 
 export { emergencySeverityMap, emergencyTypeMap };
 
 const ROLE_KEYS = ['teamLeader', 'emt1', 'emt2', 'ambulanceDriver'];
+
 
 // Helper function to safely convert various date formats to JavaScript Date
 const parseDate = (dateValue) => {
@@ -53,6 +56,7 @@ const parseDate = (dateValue) => {
 };
 
 const functions = getFunctions();
+const sendNotification = httpsCallable(functions, 'sendIncidentNotification');
 
 // Helper function to check if a responder is within their shift
 const isWithinShift = (responder) => {
@@ -77,7 +81,7 @@ const isResponderAvailable = (responder) => {
   
   // Normalize status casing
   const status = (responder.status || '').toLowerCase();
-  const validStatuses = ['active', 'available'];
+  const validStatuses = ['active'];
   
   return validStatuses.includes(status) && isWithinShift(responder);
 };
@@ -97,8 +101,8 @@ const geocodeWithGoogleMaps = async (locationText) => {
         address: locationText,
         region: 'PH', // Bias results to Philippines
         componentRestrictions: {
-          country: 'PH'
-        }
+          country: 'PH',
+        },
       },
       (results, status) => {
         if (status === 'OK' && results && results.length > 0) {
@@ -110,12 +114,12 @@ const geocodeWithGoogleMaps = async (locationText) => {
             lng: location.lng(),
             precision: 'google-geocoded',
             matchedLocation: result.formatted_address,
-            placeId: result.place_id
+            placeId: result.place_id,
           });
         } else {
           reject(new Error(`Geocoding failed: ${status}`));
         }
-      }
+      },
     );
   });
 };
@@ -155,7 +159,7 @@ const initialFormState = {
   contact: '',
   location: '',
   notes: '',
-  respondingTeam: '',
+  respondingTeams: [], 
   incidentCode: '',
   emergencyCategory: '',
   emergencySubtype: '',
@@ -165,6 +169,7 @@ const initialFormState = {
 
 const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) => {
   const db = getFirestore();
+  const { currentUser } = useAuth(); // Get current user for createdBy field
   const [teams, setTeams] = useState({});
   const [allResponders, setAllResponders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -174,6 +179,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
   const [isCodeManuallyTyped, setIsCodeManuallyTyped] = useState(false);
   const [mapCenter, setMapCenter] = useState({ lat: 16.2304, lng: 120.4822 }); // Victoria, Tarlac
   const [selectedPlace, setSelectedPlace] = useState(null);
+  const [currentUserFullName, setCurrentUserFullName] = useState('');
   
   // Refs for Google Maps components
   const mapRef = useRef(null);
@@ -219,8 +225,8 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           {
             componentRestrictions: { country: 'PH' },
             fields: ['place_id', 'geometry', 'name', 'formatted_address'],
-            types: ['establishment', 'geocode']
-          }
+            types: ['establishment', 'geocode'],
+          },
         );
 
         autocompleteRef.current.addListener('place_changed', () => {
@@ -237,7 +243,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
               lng,
               precision: 'google-places',
               matchedLocation: place.formatted_address || place.name,
-              placeId: place.place_id
+              placeId: place.place_id,
             });
             
             updateMarker(lat, lng);
@@ -284,7 +290,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
       lat,
       lng,
       precision: 'user-selected',
-      matchedLocation: `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+      matchedLocation: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
     });
   };
 
@@ -303,7 +309,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
             } else {
               reject(new Error(`Reverse geocoding failed: ${status}`));
             }
-          }
+          },
         );
       });
 
@@ -312,7 +318,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
       setCalculatedCoords(prev => ({
         ...prev,
         matchedLocation: address,
-        placeId: results[0].place_id
+        placeId: results[0].place_id,
       }));
       setStatusMessage('✅ Address found for selected location');
       
@@ -334,7 +340,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           contact: reportToEdit.contact || '',
           location: reportToEdit.locationText || '',
           notes: reportToEdit.notes || '',
-          respondingTeam: reportToEdit.respondingTeam || '',
+          respondingTeams: reportToEdit.respondingTeams || (reportToEdit.respondingTeam ? [reportToEdit.respondingTeam] : []),
           incidentCode: reportToEdit.incidentCode,
           emergencyCategory: parsed.category,
           emergencySubtype: parsed.subtype,
@@ -349,7 +355,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           contact: reportToEdit.contact || '',
           location: reportToEdit.locationText || '',
           notes: reportToEdit.notes || '',
-          respondingTeam: reportToEdit.respondingTeam || '',
+          respondingTeams: reportToEdit.respondingTeams || (reportToEdit.respondingTeam ? [reportToEdit.respondingTeam] : []),
           incidentCode: '',
           emergencyCategory: newType.category,
           emergencySubtype: newType.subtype,
@@ -385,6 +391,30 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
     setIsCodeManuallyTyped(false);
   }, [reportToEdit, isOpen]);
 
+  // Fetch current user's fullName
+  useEffect(() => {
+    const fetchCurrentUserInfo = async () => {
+      if (currentUser?.uid) {
+        try {
+          const userDoc = await getDoc(doc(db, 'mdrrmo-users', currentUser.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setCurrentUserFullName(userData.fullName || 'Unknown User');
+          } else {
+            setCurrentUserFullName('Unknown User');
+          }
+        } catch (error) {
+          console.error('Error fetching current user info:', error);
+          setCurrentUserFullName('Unknown User');
+        }
+      }
+    };
+
+    if (isOpen && currentUser) {
+      fetchCurrentUserInfo();
+    }
+  }, [db, isOpen, currentUser]);
+
   // Fetch teams and responders
   useEffect(() => {
     const fetchTeamsAndResponders = async () => {
@@ -412,13 +442,13 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
 
         const respondersQuery = query(
           collection(db, 'mdrrmo-users'),
-          where('role', '==', 'responder')
+          where('role', '==', 'responder'),
         );
         const respondersSnapshot = await getDocs(respondersQuery);
         setAllResponders(
           respondersSnapshot.docs
             .map(doc => ({ uid: doc.id, ...doc.data() }))
-            .filter(isResponderAvailable) // Use the helper function
+            .filter(isResponderAvailable), // Use the helper function
         );
       } catch (err) {
         console.error('Failed to fetch teams or responders:', err);
@@ -447,7 +477,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
     form.casualtyCode, 
     form.severityCode, 
     form.incidentCode,
-    isCodeManuallyTyped
+    isCodeManuallyTyped,
   ]);
 
   const handleChange = (e) => {
@@ -491,6 +521,23 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
     }
   };
 
+  // Handle team checkbox changes
+  const handleTeamChange = (teamId, isChecked) => {
+    setForm(prev => {
+      if (isChecked) {
+        return {
+          ...prev,
+          respondingTeams: [...prev.respondingTeams, teamId]
+        };
+      } else {
+        return {
+          ...prev,
+          respondingTeams: prev.respondingTeams.filter(id => id !== teamId)
+        };
+      }
+    });
+  };
+
   // Manual geocoding with Google Maps
   const handleManualGeocode = async () => {
     if (!form.location.trim()) {
@@ -527,8 +574,8 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
   const handleSubmit = async (e) => {
   e.preventDefault();
 
-  if (!form.reporterName || !form.contact || !form.location || !form.respondingTeam || !form.incidentCode) {
-    setStatusMessage('❌ Please fill in all required fields and ensure a valid Incident Code is generated.');
+  if (!form.reporterName || !form.contact || !form.location || form.respondingTeams.length === 0 || !form.incidentCode) {
+    setStatusMessage('❌ Please fill in all required fields, select at least one team, and ensure a valid Incident Code is generated.');
     return;
   }
 
@@ -541,45 +588,65 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
   setStatusMessage('💾 Saving report...');
 
   try {
-    let teamData;
-    if (form.respondingTeam === 'all-responders') {
-      teamData = {
-        teamName: 'All Responders',
-        members: allResponders.map(r => ({ uid: r.uid, fullName: r.fullName }))
-      };
-    } else {
-      const [teamKey, shiftKey] = form.respondingTeam.split('-');
-      const teamDetails = teams[teamKey] && teams[teamKey][shiftKey];
-      if (!teamDetails) {
-        setStatusMessage(`❌ Selected team (${teamKey} - ${shiftKey}) is not available.`);
-        setLoading(false);
-        return;
-      }
-      teamData = {
-        teamName: `${teamKey?.toUpperCase()} - ${shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}`,
-        members: ROLE_KEYS
+    // Process multiple teams
+    const allTeamData = [];
+    const allMembers = [];
+    
+    for (const teamId of form.respondingTeams) {
+      if (teamId === 'all-responders') {
+        allTeamData.push({
+          teamName: 'All Responders',
+          members: allResponders.map(r => ({ uid: r.uid, fullName: r.fullName })),
+        });
+        allMembers.push(...allResponders.map(r => ({ uid: r.uid, fullName: r.fullName })));
+      } else {
+        const [teamKey, shiftKey] = teamId.split('-');
+        const teamDetails = teams[teamKey] && teams[teamKey][shiftKey];
+        if (!teamDetails) {
+          setStatusMessage(`❌ Selected team (${teamKey} - ${shiftKey}) is not available.`);
+          setLoading(false);
+          return;
+        }
+        const teamMembers = ROLE_KEYS
           .map(role => teamDetails?.[role])
           .filter(member => member && member.uid && isResponderAvailable(member))
-          .map(member => ({ uid: member.uid, fullName: member.fullName }))
-      }; //Will fiter out who receives the notifs
-
-      // Debug logging to verify correct team targeting
-      console.log('Selected team:', form.respondingTeam);
-      console.log('Team members being notified:', teamData.members.map(m => `${m.fullName} (${m.uid})`));
+          .map(member => ({ uid: member.uid, fullName: member.fullName }));
+        
+        allTeamData.push({
+          teamName: `${teamKey?.toUpperCase()} - ${shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}`,
+          members: teamMembers,
+        });
+        allMembers.push(...teamMembers);
+      }
     }
 
-    const categoryMap = { 'ME': 'medical', 'AC': 'accident', 'NA': 'natural' };
-    const severityMap = { '@C': 'critical', '@H': 'high', '@M': 'moderate', '@L': 'low' };
+    // Create team acknowledgment tracking structure
+    const teamAcknowledgments = {};
+    allTeamData.forEach(team => {
+      teamAcknowledgments[team.teamName] = {
+        acknowledged: false,
+        acknowledgedBy: null,
+        acknowledgedAt: null,
+        members: team.members
+      };
+    });
 
+    // Add new validation here
+    if (allTeamData.length === 0) {
+      setStatusMessage('❌ The selected teams have no available responders to notify. Please select different teams.');
+      setLoading(false);
+      return;
+    }
+    
     const incidentData = {
       incidentCode: form.incidentCode,
-      emergencyType: categoryMap[form.emergencyCategory] || 'medical',
-      emergencySeverity: severityMap[form.severityCode] || 'low',
+      emergencyType: emergencyTypeMap[form.emergencyCategory] || 'medical',
+      emergencySeverity: emergencySeverityMap[form.severityCode] || 'low',
       reporter: form.reporterName,
       contact: form.contact,
       location: { 
         lat: calculatedCoords.lat, 
-        lng: calculatedCoords.lng 
+        lng: calculatedCoords.lng,
       },
       locationText: form.location,
       locationPrecision: calculatedCoords.precision || 'unknown',
@@ -588,8 +655,11 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
       notes: form.notes || '',
       status: reportToEdit?.status || 'Pending',
       timestamp: serverTimestamp(),
-      respondingTeam: form.respondingTeam,
-      teamData,
+      respondingTeams: form.respondingTeams, // Store array of team IDs
+      teamData: allTeamData, // Store array of team data
+      teamAcknowledgments: teamAcknowledgments, // Store per-team acknowledgment tracking
+      createdBy: currentUser?.uid || null, // Add createdBy field
+      createdByName: currentUserFullName || 'Unknown User', // Add created by name from mdrrmo-users document
       createdAt: new Date().toISOString(),
     };
 
@@ -614,24 +684,49 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
       savedReport = { ...incidentData, id: docRef.id, reportId };
       setStatusMessage('✅ Report created successfully!');
 
-      // 🚨 NEW: Send push notification for new incidents only
+      // SEND PUSH NOTIFICATIONS FOR NEW REPORTS ONLY - ONE PER TEAM
       try {
-        const sendNotification = httpsCallable(functions, 'sendIncidentNotification');
-        const result = await sendNotification({
-          incidentCode: savedReport.incidentCode,
-          emergencyType: savedReport.emergencyType,
-          emergencySeverity: savedReport.emergencySeverity,
-          location: savedReport.locationText,
-          teamData: savedReport.teamData,
-          coordinates: savedReport.location
-        });
+        setStatusMessage('📱 Sending notifications...');
         
-        console.log('Push notification sent:', result.data);
-        setStatusMessage('✅ Report created and team notified successfully!');
+        let totalSuccessCount = 0;
+        let totalFailureCount = 0;
+        
+        // Send separate notification for each team
+        for (const team of allTeamData) {
+          try {
+            const notificationPayload = {
+              incidentCode: form.incidentCode,
+              emergencyType: emergencyTypeMap[form.emergencyCategory] || 'medical',
+              emergencySeverity: emergencySeverityMap[form.severityCode] || 'low',
+              location: form.location,
+              teamData: team.members, // Send only this team's members
+              teamName: team.teamName, // Include team name for identification
+            };
+
+            console.log(`Sending notification to ${team.teamName}:`, notificationPayload);
+
+            const result = await sendNotification(notificationPayload);
+            console.log(`Notification result for ${team.teamName}:`, result.data);
+            
+            if (result.data.success) {
+              totalSuccessCount += result.data.successCount || 0;
+            } else {
+              totalFailureCount += 1;
+            }
+          } catch (teamNotificationError) {
+            console.error(`Error sending notification to ${team.teamName}:`, teamNotificationError);
+            totalFailureCount += 1;
+          }
+        }
+        
+        if (totalSuccessCount > 0) {
+          setStatusMessage(`✅ Report created and notifications sent to ${totalSuccessCount} devices across ${allTeamData.length} team(s)!`);
+        } else {
+          setStatusMessage('✅ Report created but notifications failed to send.');
+        }
       } catch (notificationError) {
-        console.error('Error sending push notification:', notificationError);
-        // Don't fail the entire operation if notification fails
-        setStatusMessage('✅ Report created successfully! (Notification may have failed)');
+        console.error('Error sending push notifications:', notificationError);
+        setStatusMessage('✅ Report created but notifications failed to send.');
       }
     }
 
@@ -639,7 +734,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
     setTimeout(() => {
       onClose();
       setStatusMessage('');
-    }, 2000);
+    }, 3000); // Increased timeout to see notification status
     
   } catch (err) {
     console.error('Error saving report:', err);
@@ -651,7 +746,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
 
   if (!isOpen) return null;
   const isEditing = !!reportToEdit;
-  const availableSubtypes = EMERGENCY_SUBCATEGORIES[form.emergencyCategory] || {};       
+  const availableSubtypes = EMERGENCY_SUBCATEGORIES[form.emergencyCategory] || {}; 
 
   return (
     <div className="create-modal-overlay" role="dialog" aria-modal="true">
@@ -667,7 +762,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
             style={{
               maxHeight: '70vh',
               overflowY: 'auto',
-              scrollBehavior: 'smooth'
+              scrollBehavior: 'smooth',
             }}
           >
             <div className="form-group">
@@ -811,7 +906,6 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
             </div>
 
             <div className="form-group">
-              <label htmlFor="incidentCode">Incident Code *</label>
               <input 
                 id="incidentCode"
                 type="text" 
@@ -839,25 +933,43 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
             </div>
 
             <div className="form-group">
-              <label htmlFor="respondingTeam">Responding Team *</label>
-              <select 
-                id="respondingTeam"
-                name="respondingTeam" 
-                value={form.respondingTeam} 
-                onChange={handleChange} 
-                required 
-                disabled={isEditing || loading}
-              >
-                <option value="">Select Team</option>
-                <option value="all-responders">All Responders</option>
-                {Object.entries(teams).flatMap(([teamKey, shifts]) =>
+              <label>Responding Teams *</label>
+              <div className="team-checkboxes">
+                <div className="checkbox-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={form.respondingTeams.includes('all-responders')}
+                      onChange={(e) => handleTeamChange('all-responders', e.target.checked)}
+                      disabled={isEditing || loading}
+                    />
+                    <span className="checkbox-text">All Responders</span>
+                  </label>
+                </div>
+                
+                {Object.entries(teams).map(([teamKey, shifts]) =>
                   Object.entries(shifts).map(([shiftKey]) => (
-                    <option key={`${teamKey}-${shiftKey}`} value={`${teamKey}-${shiftKey}`}>
-                      {teamKey.toUpperCase()} - {shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}
-                    </option>
-                  ))
+                    <div key={`${teamKey}-${shiftKey}`} className="checkbox-group">
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={form.respondingTeams.includes(`${teamKey}-${shiftKey}`)}
+                          onChange={(e) => handleTeamChange(`${teamKey}-${shiftKey}`, e.target.checked)}
+                          disabled={isEditing || loading}
+                        />
+                        <span className="checkbox-text">
+                          {teamKey.toUpperCase()} - {shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}
+                        </span>
+                      </label>
+                    </div>
+                  )),
                 )}
-              </select>
+              </div>
+              {form.respondingTeams.length > 0 && (
+                <div className="selected-teams-info">
+                  <small>Selected: {form.respondingTeams.length} team(s)</small>
+                </div>
+              )}
             </div>
 
             {isEditing && (

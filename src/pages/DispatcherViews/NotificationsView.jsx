@@ -25,7 +25,7 @@ export default function NotificationsView({ notifications, viewOnMap, dismissNot
 
   return (
     <div className="notifications-container">
-      <h2 className="view-title">Emergency Notifications</h2>
+      {/* Header removed per request */}
 
       {/* Filters */}
       <div className="filter-buttons" style={{ marginTop: 4 }}>

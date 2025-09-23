@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { emergencySeverityMap } from '../../constants/dispatchConstants';
+import { emergencySeverityMap, emergencyTypeMap } from '../../constants/dispatchConstants';
 import useFormatDate from '../../hooks/useFormatDate';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -116,13 +116,23 @@ export default function IncidentHistoryView() {
     setAttachmentTooltip({ show: false, content: '', x: 0, y: 0 });
   };
 
+  // Normalize a single date source for filtering and charts
+  const getPrimaryDate = (log) => {
+    // Prefer completedAt, then timestamp, then createdAt
+    return log.completedAt || log.timestamp || log.createdAt || null;
+  };
+
   // Filter logs based on selected criteria
   const filteredLogs = useMemo(() => {
     return incidents.filter((log) => {
-      const logDate = new Date(log.timestamp || log.createdAt);
+      const dateValue = getPrimaryDate(log);
+      if (!dateValue) return false;
+      const logDate = new Date(dateValue);
+      if (isNaN(logDate.getTime())) return false;
+
       const yearMatch = logDate.getFullYear().toString() === selectedYear;
-      const monthMatch = selectedMonth === 'All' || logDate.getMonth() === parseInt(selectedMonth);
-      const severityMatch = selectedSeverity === 'All' || log.emergencySeverity?.toLowerCase() === selectedSeverity.toLowerCase();
+      const monthMatch = selectedMonth === 'All' || logDate.getMonth() === parseInt(selectedMonth, 10);
+      const severityMatch = selectedSeverity === 'All' || (log.emergencySeverity || '').toLowerCase() === (selectedSeverity || '').toLowerCase();
       return yearMatch && monthMatch && severityMatch;
     });
   }, [incidents, selectedYear, selectedMonth, selectedSeverity]);
@@ -148,6 +158,7 @@ export default function IncidentHistoryView() {
     const severityCounts = {};
     const monthlyCounts = {};
     const statusCounts = {};
+    const typeCounts = {};
 
     filteredLogs.forEach(log => {
       // Severity distribution
@@ -155,16 +166,26 @@ export default function IncidentHistoryView() {
       severityCounts[severity] = (severityCounts[severity] || 0) + 1;
 
       // Monthly distribution
-      const month = new Date(log.timestamp).getMonth();
+      const baseDate = new Date(getPrimaryDate(log));
+      if (isNaN(baseDate.getTime())) return;
+      const month = baseDate.getMonth();
       const monthName = new Date(0, month).toLocaleString('default', { month: 'short' });
       monthlyCounts[monthName] = (monthlyCounts[monthName] || 0) + 1;
 
       // Status distribution
       const status = log.status?.toLowerCase() || 'unknown';
       statusCounts[status] = (statusCounts[status] || 0) + 1;
+
+      // Emergency type distribution (medical, accident, natural)
+      const eType = (log.emergencyType || '').toLowerCase();
+      if (eType) {
+        typeCounts[eType] = (typeCounts[eType] || 0) + 1;
+      } else {
+        typeCounts.unknown = (typeCounts.unknown || 0) + 1;
+      }
     });
 
-    return { severityCounts, monthlyCounts, statusCounts };
+    return { severityCounts, monthlyCounts, statusCounts, typeCounts };
   }, [filteredLogs]);
 
   // Get unique severities for filter
@@ -189,6 +210,12 @@ export default function IncidentHistoryView() {
     name: emergencySeverityMap[severity]?.label || severity.toUpperCase(),
     value: count,
     fill: getSeverityColor(severity)
+  }));
+
+  const typePieData = Object.entries(chartData.typeCounts).map(([type, count]) => ({
+    name: emergencyTypeMap[type]?.label || (type ? type.toUpperCase() : 'UNKNOWN'),
+    value: count,
+    fill: emergencyTypeMap[type]?.color || '#6b7280'
   }));
 
   const monthlyBarData = Object.entries(chartData.monthlyCounts)
@@ -236,57 +263,10 @@ export default function IncidentHistoryView() {
   return (
     <div className="dispatcher-page">
       <div className="team-missions-dashboard">
-        {/* Header */}
-        <div className="dashboard-header">
-          <div className="header-title">
-            <div className="header-icon">
-              <i className="fas fa-chart-line"></i>
-            </div>
-            <h1>Incident History & Analytics</h1>
-          </div>
-          <p className="header-subtitle">
-            Comprehensive overview of rescue operations and incident patterns
-          </p>
-        </div>
+        {/* Header removed per request */}
 
-        {/* Filters */}
-        <div className="header-filters">
-          <div className="filter-group">
-            <label>Year:</label>
-            <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>
-              {Array.from({ length: 5 }, (_, i) => {
-                const year = new Date().getFullYear() - i;
-                return <option key={year} value={year}>{year}</option>;
-              })}
-            </select>
-          </div>
-          
-          <div className="filter-group">
-            <label>Month:</label>
-            <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
-              <option value="All">All Months</option>
-              {Array.from({ length: 12 }, (_, i) => (
-                <option key={i} value={i}>
-                  {new Date(0, i).toLocaleString('default', { month: 'long' })}
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          <div className="filter-group">
-            <label>Severity:</label>
-            <select value={selectedSeverity} onChange={(e) => setSelectedSeverity(e.target.value)}>
-              <option value="All">All Severities</option>
-              {availableSeverities.map(severity => (
-                <option key={severity} value={severity}>
-                  {emergencySeverityMap[severity?.toLowerCase()]?.label || severity}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+        {/* Stats Cards */}
 
-        {/* Statistics Cards */}
         <div className="team-stats-grid">
           <div className="stat-card">
             <div className="stat-card-content">
@@ -347,8 +327,119 @@ export default function IncidentHistoryView() {
           </div>
         </div>
 
+        {/* Filters moved under the operations cards and styled to match system */}
+        <div 
+          className="filter-buttons"
+          style={{
+            marginTop: '12px',
+            display: 'flex',
+            gap: '12px',
+            flexWrap: 'wrap'
+          }}
+        >
+          <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ color: '#374151', fontWeight: 600 }}>Year:</label>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              style={{
+                backgroundColor: '#111827',
+                color: '#f9fafb',
+                border: '1px solid #374151',
+                borderRadius: 6,
+                padding: '6px 10px',
+              }}
+            >
+              {Array.from({ length: 5 }, (_, i) => {
+                const year = new Date().getFullYear() - i;
+                return <option key={year} value={year}>{year}</option>;
+              })}
+            </select>
+          </div>
+          
+          <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ color: '#374151', fontWeight: 600 }}>Month:</label>
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              style={{
+                backgroundColor: '#111827',
+                color: '#f9fafb',
+                border: '1px solid #374151',
+                borderRadius: 6,
+                padding: '6px 10px',
+              }}
+            >
+              <option value="All">All Months</option>
+              {Array.from({ length: 12 }, (_, i) => (
+                <option key={i} value={i}>
+                  {new Date(0, i).toLocaleString('default', { month: 'long' })}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="filter-group" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ color: '#374151', fontWeight: 600 }}>Severity:</label>
+            <select
+              value={selectedSeverity}
+              onChange={(e) => setSelectedSeverity(e.target.value)}
+              style={{
+                backgroundColor: '#111827',
+                color: '#f9fafb',
+                border: '1px solid #374151',
+                borderRadius: 6,
+                padding: '6px 10px',
+              }}
+            >
+              <option value="All">All Severities</option>
+              {availableSeverities.map(severity => (
+                <option key={severity} value={severity}>
+                  {emergencySeverityMap[severity?.toLowerCase()]?.label || severity}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         {/* Charts Section */}
         <div className="charts-grid">
+          {/* Emergency Type Distribution Pie Chart */}
+          <div className="chart-card">
+            <div className="chart-header">
+              <h3>Emergency Type Distribution</h3>
+              <p>Breakdown of incidents by type</p>
+            </div>
+            <div className="chart-content">
+              {typePieData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={typePieData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {typePieData.map((entry, index) => (
+                        <Cell key={`type-cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="chart-empty">
+                  <i className="fas fa-chart-pie"></i>
+                  <p>No data available for the selected period</p>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Severity Distribution Pie Chart */}
           <div className="chart-card">
             <div className="chart-header">
@@ -546,23 +637,6 @@ export default function IncidentHistoryView() {
         )}
       </div>
       
-      <style jsx>{`
-        .attachment-icon.has-attachments:hover {
-          color: #1d4ed8 !important;
-          transform: scale(1.1);
-        }
-        
-        .attachment-indicator {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 }

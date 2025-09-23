@@ -28,30 +28,40 @@ const SHIFT_TIMES = {
 const teamsKeys = ['alpha', 'bravo'];
 const shifts = ['dayShift', 'nightShift'];
 
-function getShiftTimes(shiftKey) {
-  const now = new Date();
-  const { startHour, endHour } = SHIFT_TIMES[shiftKey];
-  const start = new Date(now);
-  start.setHours(startHour, 0, 0, 0);
-
-  const end = new Date(now);
-  end.setHours(endHour, 0, 0, 0);
-
-  if (endHour <= startHour) {
-    end.setDate(end.getDate() + 1);
-  }
-
-  return { shiftStart: start.toISOString(), shiftEnd: end.toISOString() };
+// Helper function to format time in Philippine Standard Time
+function formatTimeInPST(date) {
+  return date.toLocaleString('en-US', {
+    timeZone: 'Asia/Manila',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
 }
 
-function isWithinShift(shift, now) {
-  if (!shift || !shift.shiftStart || !shift.shiftEnd) return false;
-  const start = new Date(shift.shiftStart);
-  const end = new Date(shift.shiftEnd);
-  if (start.getHours() > end.getHours()) {
-    return now >= start || now < end;
+// Helper function to check if team is within their shift time
+function isWithinShift(shiftKey, currentTime) {
+  const { startHour, endHour } = SHIFT_TIMES[shiftKey];
+  // Convert to Philippine time
+  const philippineTime = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+  const currentHour = philippineTime.getHours();
+  
+  if (shiftKey === 'dayShift') {
+    // Day shift: 6 AM - 6 PM
+    return currentHour >= startHour && currentHour < endHour;
+  } else {
+    // Night shift: 6 PM - 6 AM (next day)
+    return currentHour >= startHour || currentHour < endHour;
   }
-  return now >= start && now < end;
+}
+
+// Helper function to check if team is active (within shift time and has members)
+function isTeamActive(shift, shiftKey, currentTime) {
+  return hasMembers(shift) && isWithinShift(shiftKey, currentTime);
+}
+
+// Helper function to check if team is on call (has members but not in shift time)
+function isTeamOnCall(shift, shiftKey, currentTime) {
+  return hasMembers(shift) && !isWithinShift(shiftKey, currentTime);
 }
 
 function hasMembers(shift) {
@@ -124,24 +134,18 @@ export default function TeamOrganizerView() {
         console.warn(`Failed to load ${teamKey}-${shiftKey}, using default`);
         loadedTeams[teamKey][shiftKey] = {
           ...defaultShift,
-          ...getShiftTimes(shiftKey),
           createdAt: new Date().toISOString(),
         };
         continue;
       }
 
-      const times = getShiftTimes(shiftKey);
-
       if (docSnap && docSnap.exists()) {
         loadedTeams[teamKey][shiftKey] = {
           ...docSnap.data(),
-          shiftStart: times.shiftStart,
-          shiftEnd: times.shiftEnd,
         };
       } else {
         const newShift = {
           ...defaultShift,
-          ...times,
           createdAt: new Date().toISOString(),
         };
         loadedTeams[teamKey][shiftKey] = newShift;
@@ -234,8 +238,6 @@ export default function TeamOrganizerView() {
       const shiftToSave = {
         ...updatedShift,
         createdAt: new Date().toISOString(),
-        shiftStart: updatedShift.shiftStart || teams[teamKey][shiftKey].shiftStart,
-        shiftEnd: updatedShift.shiftEnd || teams[teamKey][shiftKey].shiftEnd,
         // Don't override status if it exists (let mobile app manage it)
         status: updatedShift.status || teams[teamKey][shiftKey].status || 'active'
       };
@@ -266,7 +268,7 @@ export default function TeamOrganizerView() {
   if (loading) {
     return (
       <div className="team-organizer-container">
-        <h2>Team Organizer</h2>
+        {/* Header removed per request */}
         <div>Loading teams and responders...</div>
         {currentUser && (
           <div style={{ fontSize: '0.9rem', color: '#666', marginTop: '10px' }}>
@@ -280,7 +282,7 @@ export default function TeamOrganizerView() {
   if (error) {
     return (
       <div className="team-organizer-container">
-        <h2>Team Organizer</h2>
+        {/* Header removed per request */}
         <div style={{ color: 'red', padding: '20px', border: '1px solid red', borderRadius: '5px' }}>
           <strong>Error loading data:</strong> {error}
           <br />
@@ -304,7 +306,7 @@ export default function TeamOrganizerView() {
 
   return (
     <div className="team-organizer-container">
-      <h2>Team Organizer</h2>
+      {/* Header removed per request */}
       
       {currentUser && (
         <div style={{ fontSize: '0.9rem', color: '#666', marginBottom: '20px' }}>
@@ -321,20 +323,18 @@ export default function TeamOrganizerView() {
               const shift = teams[teamKey][shiftKey];
               if (!shift) return null;
 
-              const isActive = hasMembers(shift) && isWithinShift(shift, currentTime);
-              const startTime = new Date(shift.shiftStart).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              });
-              const endTime = new Date(shift.shiftEnd).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              });
+              const isActive = isTeamActive(shift, shiftKey, currentTime);
+              const isOnCall = isTeamOnCall(shift, shiftKey, currentTime);
+              const currentTimePST = formatTimeInPST(currentTime);
+              const shiftTimes = SHIFT_TIMES[shiftKey];
+              const shiftTimeDisplay = shiftKey === 'dayShift' 
+                ? `6:00 AM - 6:00 PM` 
+                : `6:00 PM - 6:00 AM`;
 
               return (
                 <div
                   key={shiftKey}
-                  className={`deck-card ${isActive ? 'active' : ''}`}
+                  className={`deck-card ${isActive ? 'active' : isOnCall ? 'oncall' : ''}`}
                 >
                   <div className="deck-header">
                     <div className="deck-title-group">
@@ -344,6 +344,11 @@ export default function TeamOrganizerView() {
                       {isActive && (
                         <span style={{ color: '#6c8c44', fontWeight: 600, fontSize: '0.9rem' }}>
                           (Active)
+                        </span>
+                      )}
+                      {isOnCall && (
+                        <span style={{ color: '#2563eb', fontWeight: 600, fontSize: '0.9rem' }}>
+                          (On Call)
                         </span>
                       )}
                     </div>
@@ -358,7 +363,7 @@ export default function TeamOrganizerView() {
                   </div>
 
                   <div className="deck-timestamp">
-                    {startTime} - {endTime}
+                    Shift Time: {shiftTimeDisplay} PST
                   </div>
 
                   <div className="deck-body">
@@ -386,7 +391,15 @@ export default function TeamOrganizerView() {
 
                   {shift.createdAt && (
                     <div className="deck-timestamp" style={{ marginTop: 10 }}>
-                      Created: {new Date(shift.createdAt).toLocaleString()}
+                      Created: {new Date(shift.createdAt).toLocaleString('en-US', {
+                        timeZone: 'America/Los_Angeles',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      })} PST
                     </div>
                   )}
                 </div>

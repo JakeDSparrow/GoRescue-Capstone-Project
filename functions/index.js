@@ -6,201 +6,222 @@
  *
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
-
-const {onRequest, onCall} = require("firebase-functions/v2/https");
-const logger = require("firebase-functions/logger");
-const admin = require("firebase-admin");
+const functions = require('firebase-functions');
+const {onRequest, onCall} = require('firebase-functions/v2/https');
+const logger = require('firebase-functions/logger');
+const admin = require('firebase-admin');
 
 // Initialize the Firebase Admin SDK
 admin.initializeApp();
 
 // Your existing addUser function
 exports.addUser = onRequest((request, response) => {
-  // Check if the request is a POST request
-  if (request.method !== "POST") {
-    response.status(405).send("Method Not Allowed");
-    return;
-  }
+    if (request.method !== 'POST') {
+        response.status(405).send('Method Not Allowed');
+        return;
+    }
 
-  // Get the user data from the request body
-  const {email, password} = request.body;
+    const {email, password} = request.body;
+    if (!email || !password) {
+        response.status(400).send('Email and password are required.');
+        return;
+    }
 
-  // Validate the input
-  if (!email || !password) {
-    response.status(400).send("Email and password are required.");
-    return;
-  }
-
-  // Create a new user with the provided email and password
-  admin.auth().createUser({
-    email: email,
-    password: password,
-  })
-      .then((userRecord) => {
-        // The user was created successfully
-        logger.info(`Successfully created new user: ${userRecord.uid}`);
-        response.status(201).send(`User created with UID: ${userRecord.uid}`);
-      })
-      .catch((error) => {
-        // Handle the error
-        logger.error("Error creating new user:", error);
-        response.status(500).send(`Error creating user: ${error.message}`);
-      });
+    admin.auth().createUser({
+        email: email,
+        password: password,
+    })
+        .then((userRecord) => {
+            logger.info(`Successfully created new user: ${userRecord.uid}`);
+            response.status(201).send(`User created with UID: ${userRecord.uid}`);
+        })
+        .catch((error) => {
+            logger.error('Error creating new user:', error);
+            response.status(500).send(`Error creating user: ${error.message}`);
+        });
 });
 
-// NEW: Push notification function for incidents
+// FIXED: Push notification function for incidents
+// FIXED: Push notification function for incidents with detailed debugging
 exports.sendIncidentNotification = onCall({cors: true}, async (request) => {
-  // Verify the user is authenticated
-  if (!request.auth) {
-    throw new Error("User must be authenticated");
-  }
-
-  const {
-    incidentCode,
-    emergencyType,
-    emergencySeverity,
-    location,
-    teamData,
-    coordinates,
-  } = request.data;
-
-  try {
-    // Get FCM tokens for the responding team members
-    const teamMemberIds = teamData.members.map((member) => member.uid);
-    const fcmTokens = [];
-
-    // Fetch FCM tokens from user documents
-    for (const uid of teamMemberIds) {
-      try {
-        const userDoc = await admin.firestore().collection("users")
-            .doc(uid).get();
-        if (userDoc.exists) {
-          const userData = userDoc.data();
-          if (userData.fcmToken) {
-            fcmTokens.push(userData.fcmToken);
-          }
-        }
-      } catch (error) {
-        logger.error(`Error fetching user ${uid}:`, error);
-        // Continue with other users
-      }
+    if (!request.auth) {
+        throw new functions.https.HttpsError(
+            'unauthenticated',
+            'The function must be called while authenticated.',
+        );
     }
 
-    if (fcmTokens.length === 0) {
-      logger.info("No FCM tokens found for team members");
-      return {success: true, message: "No devices to notify"};
+    const {
+        incidentCode,
+        emergencyType,
+        emergencySeverity,
+        location,
+        teamData,
+    } = request.data;
+
+    logger.info('=== DEBUGGING NOTIFICATION FUNCTION ===');
+    logger.info('Received teamData:', JSON.stringify(teamData, null, 2));
+
+    // Handle both formats: direct array or object with members property
+    let teamMembers = [];
+    if (Array.isArray(teamData)) {
+        teamMembers = teamData;
+    } else if (teamData && Array.isArray(teamData.members)) {
+        teamMembers = teamData.members;
+    } else {
+        logger.error('Invalid teamData format:', teamData);
+        throw new functions.https.HttpsError(
+            'invalid-argument',
+            'teamData must be an array or object with members array.',
+        );
     }
 
-    // Create the notification payload
-    const payload = {
-      notification: {
-        title: `🚨 New ${emergencyType.toUpperCase()} Emergency`,
-        body: `Incident: ${incidentCode} | Severity: ` +
-        `${emergencySeverity.toUpperCase()} | Location: ${location}`,
-      },
-      data: {
-        incidentCode: incidentCode,
-        emergencyType: emergencyType,
-        emergencySeverity: emergencySeverity,
-        location: location,
-        latitude: coordinates.lat.toString(),
-        longitude: coordinates.lng.toString(),
-        teamName: teamData.teamName,
-        action: "new_incident",
-      },
-      android: {
-        priority: "high",
-        notification: {
-          channelId: "emergency_channel",
-          priority: "max",
-          sound: "default",
-          vibrate: [1000, 1000, 1000],
-          icon: "ic_notification",
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: "default",
-            badge: 1,
-          },
-        },
-      },
-    };
-
-    // Send multicast message
-    const response = await admin.messaging().sendMulticast({
-      tokens: fcmTokens,
-      ...payload,
-    });
-
-    logger.info(`Successfully sent message to ` +
-    `${response.successCount} devices`);
-
-    if (response.failureCount > 0) {
-      logger.warn(`Failed to send to ` +
-      `${response.failureCount} devices`);
-      // Handle failed tokens (remove invalid ones from database)
-      const failedTokens = [];
-      response.responses.forEach((resp, idx) => {
-        if (!resp.success) {
-          logger.error("Error sending to token:", resp.error);
-          // If token is invalid, mark it for cleanup
-          if (
-            resp.error?.code === "messaging/registration-token-not-registered"||
-            resp.error?.code === "messaging/invalid-registration-token"
-          ) {
-            failedTokens.push(fcmTokens[idx]);
-          }
-        }
-      });
-
-      // Remove invalid tokens from user documents
-      if (failedTokens.length > 0) {
-        await cleanupInvalidTokens(failedTokens, teamMemberIds);
-      }
+    if (teamMembers.length === 0) {
+        logger.error('No team members found in teamData.');
+        throw new functions.https.HttpsError(
+            'invalid-argument',
+            'No team members found to notify.',
+        );
     }
 
-    return {
-      success: true,
-      successCount: response.successCount,
-      failureCount: response.failureCount,
-    };
-  } catch (error) {
-    logger.error("Error sending notification:", error);
-    throw new Error("Failed to send notification: " + error.message);
-  }
-});
+    logger.info(`Processing ${teamMembers.length} team members:`, teamMembers);
 
-/**
- * Removes invalid FCM tokens from user documents.
- * @param {string[]} failedTokens - An array of invalid FCM tokens.
- * @param {string[]} userIds - An array of user UIDs.
- */
-async function cleanupInvalidTokens(failedTokens, userIds) {
-  const promises = [];
+    try {
+        const teamMemberUids = teamMembers.map((member) => member.uid).filter(uid => uid);
+        logger.info(`Found ${teamMemberUids.length} valid UIDs:`, teamMemberUids);
+        
+        const tokens = [];
+        const db = admin.firestore();
 
-  for (const token of failedTokens) {
-    for (const uid of userIds) {
-      promises.push(
-          admin.firestore().collection("users").doc(uid).get()
-              .then((userDoc) => {
-                if (userDoc.exists && userDoc.data().fcmToken === token) {
-                  return admin.firestore().collection("users").doc(uid).update({
-                    fcmToken: admin.firestore.FieldValue.delete(),
-                  });
+        // Debug each user lookup
+        for (const uid of teamMemberUids) {
+            try {
+                logger.info(`Looking up user document: mdrrmo-users/${uid}`);
+                const userDoc = await db.collection('mdrrmo-users').doc(uid).get();
+                
+                if (userDoc.exists) {
+                    const userData = userDoc.data();
+                    logger.info(`User ${uid} document exists. Data:`, {
+                        hasData: !!userData,
+                        keys: userData ? Object.keys(userData) : [],
+                        fcmToken: userData?.fcmToken ? 'EXISTS' : 'MISSING',
+                        tokenPreview: userData?.fcmToken ? userData.fcmToken.substring(0, 20) + '...' : 'N/A'
+                    });
+                    
+                    if (userData && userData.fcmToken) {
+                        tokens.push(userData.fcmToken);
+                        logger.info(`✅ Added FCM token for user: ${uid}`);
+                    } else {
+                        logger.warn(`❌ No FCM token found for user: ${uid}`);
+                        // Check for alternative token field names
+                        const alternativeFields = ['token', 'pushToken', 'deviceToken', 'notificationToken'];
+                        for (const field of alternativeFields) {
+                            if (userData && userData[field]) {
+                                logger.info(`Found alternative token field '${field}' for user ${uid}`);
+                                tokens.push(userData[field]);
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    logger.error(`❌ User document does not exist: mdrrmo-users/${uid}`);
                 }
-                return null;
-              })
-              .then(() => {
-                logger.info(`Removed invalid token for user ${uid}`);
-              })
-              .catch((error) => {
-                logger.error(`Error cleaning up token for user ${uid}:`, error);
-              }),
-      );
-    }
-  }
+            } catch (error) {
+                logger.error(`❌ Error fetching user document for ${uid}:`, error);
+            }
+        }
 
-  await Promise.all(promises);
-}
+        logger.info(`=== TOKEN COLLECTION SUMMARY ===`);
+        logger.info(`Total tokens found: ${tokens.length}`);
+        logger.info(`Tokens preview:`, tokens.map(token => token.substring(0, 20) + '...'));
+
+        if (tokens.length === 0) {
+            // Let's also check what users exist in the collection
+            try {
+                const allUsersSnapshot = await db.collection('mdrrmo-users').limit(5).get();
+                logger.info('Sample users in mdrrmo-users collection:');
+                allUsersSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    logger.info(`User ${doc.id}:`, {
+                        keys: Object.keys(data),
+                        role: data.role,
+                        hasFcmToken: !!data.fcmToken
+                    });
+                });
+            } catch (e) {
+                logger.error('Could not fetch sample users:', e);
+            }
+            
+            logger.warn('No valid FCM tokens found for any team members.');
+            return {success: true, message: 'No devices to notify.'};
+        }
+
+        // Create notification payload
+        const title = `New Incident: ${incidentCode || 'Emergency'}`;
+        const body = `${emergencyType || 'Emergency'} - ${emergencySeverity || 'Unknown'} severity\nLocation: ${location || 'Not specified'}`;
+
+        const payload = {
+            notification: {
+                title: title,
+                body: body,
+            },
+            data: {
+                incidentCode: incidentCode || 'N/A',
+                emergencyType: emergencyType || 'Unknown Type',
+                emergencySeverity: emergencySeverity || 'Unknown',
+                location: location || 'Not specified',
+            },
+            android: {
+                priority: 'high',
+                notification: {
+                    priority: 'high',
+                    defaultSound: true,
+                    defaultVibrateTimings: true,
+                },
+            },
+            apns: {
+                payload: {
+                    aps: {
+                        alert: {
+                            title: title,
+                            body: body,
+                        },
+                        sound: 'default',
+                        'content-available': 1,
+                    },
+                },
+            },
+        };
+
+        logger.info(`Attempting to send notification to ${tokens.length} tokens.`);
+        logger.info('Notification payload:', JSON.stringify(payload, null, 2));
+
+        const response = await admin.messaging().sendEachForMulticast({
+            tokens: tokens,
+            ...payload,
+        });
+
+        logger.info(`Successfully sent message to ${response.successCount} devices.`);
+        if (response.failureCount > 0) {
+            logger.warn(`Failed to send to ${response.failureCount} devices.`);
+            response.responses.forEach((resp, idx) => {
+                if (!resp.success) {
+                    logger.error(`Failed to send to token ${idx}:`, resp.error);
+                }
+            });
+        }
+
+        return {
+            success: true,
+            successCount: response.successCount,
+            failureCount: response.failureCount,
+            message: `Notification sent to ${response.successCount} devices.`,
+        };
+    } catch (error) {
+        logger.error('Error sending notification:', error);
+        throw new functions.https.HttpsError(
+            'internal',
+            'An unexpected error occurred while sending the notification.',
+        );
+    }
+});

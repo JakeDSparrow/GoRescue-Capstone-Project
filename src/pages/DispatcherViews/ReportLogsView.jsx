@@ -14,6 +14,28 @@ function formatRespondingTeam(teamKey) {
   return `Team ${team.charAt(0).toUpperCase() + team.slice(1)}`;
 }
 
+function formatMultipleTeams(respondingTeams, teamData) {
+  if (!respondingTeams || respondingTeams.length === 0) return 'N/A';
+  
+  // Handle legacy single team format
+  if (typeof respondingTeams === 'string') {
+    return formatRespondingTeam(respondingTeams);
+  }
+  
+  // Handle new multiple teams format
+  if (Array.isArray(respondingTeams)) {
+    if (respondingTeams.length === 1) {
+      return formatRespondingTeam(respondingTeams[0]);
+    }
+    
+    // For multiple teams, show count and first team name
+    const firstTeam = formatRespondingTeam(respondingTeams[0]);
+    return `${firstTeam} +${respondingTeams.length - 1} more`;
+  }
+  
+  return 'N/A';
+}
+
 function parseFirestoreDate(timestamp) {
   if (!timestamp) return null;
   
@@ -145,7 +167,7 @@ const activeReports = React.useMemo(() => {
   if (loading) {
     return (
       <div className="card">
-        <h2>Report Logs</h2>
+        {/* Header removed per request */}
         <div style={{ textAlign: 'center', padding: '40px' }}>
           <i className="fas fa-spinner fa-spin" style={{ fontSize: '24px', marginBottom: '10px' }}></i>
           <p>Loading reports...</p>
@@ -156,7 +178,7 @@ const activeReports = React.useMemo(() => {
 
   return (
     <div className="card">
-      <h2>Report Logs</h2>
+      {/* Header removed per request */}
       <div className="table-container">
         <table className="log-table">
           <thead>
@@ -222,7 +244,7 @@ const activeReports = React.useMemo(() => {
                     {log.reporter || 'N/A'} <br />
                     <small>{log.contact || 'N/A'}</small>
                   </td>
-                  <td>{formatRespondingTeam(log.respondingTeam)}</td>
+                  <td>{formatMultipleTeams(log.respondingTeams || log.respondingTeam, log.teamData)}</td>
                   <td>
                     {(() => {
                       let displayStatus = 'N/A';

@@ -344,6 +344,53 @@
   font-size: 12px;
 }
 
+/* Team Detail Section Styles */
+.team-detail-section {
+  margin-bottom: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.team-detail-section:last-child {
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+.team-detail-section h4 {
+  margin: 0 0 6px 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #374151;
+  padding: 0;
+  border-bottom: none;
+}
+
+.team-detail-section ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.team-detail-section li {
+  margin-bottom: 3px;
+  font-size: 0.875rem;
+  color: #6b7280;
+  line-height: 1.4;
+  padding-left: 12px;
+  position: relative;
+}
+
+.team-detail-section li:before {
+  content: "•";
+  color: #9ca3af;
+  position: absolute;
+  left: 0;
+}
+
+.team-detail-section li:last-child {
+  margin-bottom: 0;
+}
+
 /* Responsive adjustments for attachments */
 @media (max-width: 640px) {
   .attachment-item {
@@ -359,5 +406,17 @@
   .download-btn {
     width: 100%;
     justify-content: center;
+  }
+  
+  .team-detail-section {
+    padding: 10px;
+  }
+  
+  .team-detail-section h4 {
+    font-size: 0.9rem;
+  }
+  
+  .team-detail-section li {
+    font-size: 0.8rem;
   }
 }

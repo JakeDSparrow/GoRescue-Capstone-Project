@@ -1,4 +1,3 @@
-// src/components/DispatcherViews/TeamStatusView.jsx
 import React, { useState, useEffect } from "react";
 import { collection, query, onSnapshot, orderBy } from "firebase/firestore";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
@@ -12,15 +11,26 @@ const roleDisplayNames = {
   ambulanceDriver: "Ambulance Driver",
 };
 
-// Helper to determine responder status based on active missions
-const getResponderStatus = (missions) => {
+// Helper to determine responder status based on active missions and team acknowledgments
+const getResponderStatus = (missions, teamName) => {
   const activeMissions = missions.filter((m) => m.status !== "completed");
   const inProgressMissions = missions.filter((m) => m.status === "in-progress");
+  
+  // Check if this team has acknowledged any of their assigned missions
+  const teamAcknowledgedMissions = activeMissions.filter((m) => {
+    if (m.teamAcknowledgments && m.teamAcknowledgments[teamName]) {
+      return m.teamAcknowledgments[teamName].acknowledged;
+    }
+    // Fallback to legacy status check
+    return m.status === "acknowledged" || m.status === "en-route" || m.status === "in-progress";
+  });
 
   if (inProgressMissions.length > 0) {
     return { status: "responding", label: "Responding", color: "danger" };
-  } else if (activeMissions.length > 0) {
+  } else if (teamAcknowledgedMissions.length > 0) {
     return { status: "dispatched", label: "Dispatched", color: "warning" };
+  } else if (activeMissions.length > 0) {
+    return { status: "pending", label: "Pending", color: "info" };
   } else {
     return { status: "available", label: "Available", color: "success" };
   }
@@ -187,35 +197,79 @@ const TeamStatusView = () => {
             incident.status = s;
           }
 
-          const teamIdRaw = incident.respondingTeam || incident.assignedTeam;
-          const teamId = normalizeTeamId(teamIdRaw);
-          if (teamId === "all-responders") {
-            Object.keys(teamsData).forEach((id) => {
-              missionsPerTeam[id].push(incident);
+          // Handle both legacy single team and new multiple teams format
+          const respondingTeams = incident.respondingTeams || incident.respondingTeam;
+          
+          if (Array.isArray(respondingTeams)) {
+            // New multiple teams format
+            respondingTeams.forEach(teamIdRaw => {
+              const teamId = normalizeTeamId(teamIdRaw);
+              if (teamId === "all-responders") {
+                Object.keys(teamsData).forEach((id) => {
+                  missionsPerTeam[id].push(incident);
+                });
+              } else if (teamId) {
+                if (!missionsPerTeam[teamId]) {
+                  missionsPerTeam[teamId] = [];
+                  placeholderTeamIds.add(teamId);
+                }
+                missionsPerTeam[teamId].push(incident);
+              }
             });
-          } else if (teamId) {
-            if (!missionsPerTeam[teamId]) {
-              missionsPerTeam[teamId] = [];
-              placeholderTeamIds.add(teamId);
+          } else {
+            // Legacy single team format
+            const teamIdRaw = respondingTeams || incident.assignedTeam;
+            const teamId = normalizeTeamId(teamIdRaw);
+            if (teamId === "all-responders") {
+              Object.keys(teamsData).forEach((id) => {
+                missionsPerTeam[id].push(incident);
+              });
+            } else if (teamId) {
+              if (!missionsPerTeam[teamId]) {
+                missionsPerTeam[teamId] = [];
+                placeholderTeamIds.add(teamId);
+              }
+              missionsPerTeam[teamId].push(incident);
             }
-            missionsPerTeam[teamId].push(incident);
           }
         });
 
         // Add report logs (support both assignedTeam and respondingTeam keys)
         reportLogs.forEach((log) => {
-          const teamKeyRaw = log.assignedTeam || log.respondingTeam;
-          const teamKey = normalizeTeamId(teamKeyRaw);
-          if (teamKey) {
-            if (!missionsPerTeam[teamKey]) {
-              missionsPerTeam[teamKey] = [];
-              placeholderTeamIds.add(teamKey);
-            }
-            missionsPerTeam[teamKey].push({
-              ...log,
-              type: "report",
-              status: log.status || "pending",
+          // Handle both legacy single team and new multiple teams format
+          const respondingTeams = log.respondingTeams || log.respondingTeam || log.assignedTeam;
+          
+          if (Array.isArray(respondingTeams)) {
+            // New multiple teams format
+            respondingTeams.forEach(teamIdRaw => {
+              const teamKey = normalizeTeamId(teamIdRaw);
+              if (teamKey) {
+                if (!missionsPerTeam[teamKey]) {
+                  missionsPerTeam[teamKey] = [];
+                  placeholderTeamIds.add(teamKey);
+                }
+                missionsPerTeam[teamKey].push({
+                  ...log,
+                  type: "report",
+                  status: log.status || "pending",
+                });
+              }
             });
+          } else {
+            // Legacy single team format
+            const teamKeyRaw = respondingTeams;
+            const teamKey = normalizeTeamId(teamKeyRaw);
+            if (teamKey) {
+              if (!missionsPerTeam[teamKey]) {
+                missionsPerTeam[teamKey] = [];
+                placeholderTeamIds.add(teamKey);
+              }
+              missionsPerTeam[teamKey].push({
+                ...log,
+                type: "report",
+                status: log.status || "pending",
+              });
+            }
           }
         });
 
@@ -337,7 +391,7 @@ const TeamStatusView = () => {
 
   // Filter teams based on status
   const filteredTeams = teamStatuses.filter((team) => {
-    const responderStatus = getResponderStatus(team.missions);
+    const responderStatus = getResponderStatus(team.missions, team.name);
 
     switch (filter) {
       case "available":
@@ -346,6 +400,8 @@ const TeamStatusView = () => {
         return responderStatus.status === "dispatched";
       case "responding":
         return responderStatus.status === "responding";
+      case "pending":
+        return responderStatus.status === "pending";
       default:
         return true;
     }
@@ -354,13 +410,16 @@ const TeamStatusView = () => {
   const stats = {
     total: teamStatuses.length,
     available: teamStatuses.filter(
-      (t) => getResponderStatus(t.missions).status === "available"
+      (t) => getResponderStatus(t.missions, t.name).status === "available"
     ).length,
     dispatched: teamStatuses.filter(
-      (t) => getResponderStatus(t.missions).status === "dispatched"
+      (t) => getResponderStatus(t.missions, t.name).status === "dispatched"
     ).length,
     responding: teamStatuses.filter(
-      (t) => getResponderStatus(t.missions).status === "responding"
+      (t) => getResponderStatus(t.missions, t.name).status === "responding"
+    ).length,
+    pending: teamStatuses.filter(
+      (t) => getResponderStatus(t.missions, t.name).status === "pending"
     ).length,
     totalMissions: teamStatuses.reduce(
       (total, team) =>
@@ -383,18 +442,7 @@ const TeamStatusView = () => {
   return (
     <div className="dispatcher-page">
       <div className="team-missions-dashboard">
-        {/* Header */}
-        <div className="dashboard-header">
-          <div className="header-title">
-            <div className="header-icon">
-              <i className="fas fa-chart-bar"></i>
-            </div>
-            <h1>Team Status & Missions Dashboard</h1>
-          </div>
-          <p className="header-subtitle">
-            Live overview of responder teams, missions, and report assignments
-          </p>
-        </div>
+        {/* Header removed per request */}
 
         {/* Loading State */}
         {loading ? (
@@ -495,13 +543,19 @@ const TeamStatusView = () => {
               >
                 Responding ({stats.responding})
               </button>
+              <button
+                className={filter === "pending" ? "active" : ""}
+                onClick={() => setFilter("pending")}
+              >
+                Pending ({stats.pending})
+              </button>
             </div>
 
             {/* Team Cards Grid */}
             <div className="team-cards-grid">
               {filteredTeams.map((team) => {
                 const isExpanded = expandedTeams.has(team.id);
-                const responderStatus = getResponderStatus(team.missions);
+                const responderStatus = getResponderStatus(team.missions, team.name);
                 const activeMissions = team.missions.filter((m) => m.status !== "completed");
                 const reports = team.missions.filter((m) => m.type === "report");
                 const missions = team.missions.filter((m) => m.type === "mission");
