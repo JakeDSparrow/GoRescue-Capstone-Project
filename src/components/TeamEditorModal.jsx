@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "../firebase";
+import { Timestamp } from "firebase/firestore";
 import './modalstyles/TeamEditorModalStyles.css';
 
 const roleLabels = {
@@ -21,10 +24,10 @@ export default function TeamEditorModal({
   const [formState, setFormState] = useState({});
   const [draggedResponder, setDraggedResponder] = useState(null);
   const [dropZoneActive, setDropZoneActive] = useState(null);
+  const teamId = `${selectedTeamKey}-${selectedShiftKey}`;
 
   useEffect(() => {
     if (isOpen && currentTeam) {
-      // Initialize form state with current team data
       setFormState({ ...currentTeam });
       console.log('Modal opened with team data:', currentTeam);
     }
@@ -38,9 +41,6 @@ export default function TeamEditorModal({
     // Go through ALL teams and shifts to find already assigned responders
     Object.entries(teams).forEach(([teamKey, teamShifts]) => {
       Object.entries(teamShifts || {}).forEach(([shiftKey, shift]) => {
-        // Exclude all assignments from the team and shift currently being edited.
-        // This is the key fix. It ensures that any responder on the current team
-        // is available for reassignment within that team.
         if (teamKey === selectedTeamKey && shiftKey === selectedShiftKey) {
           return;
         }
@@ -54,8 +54,6 @@ export default function TeamEditorModal({
       });
     });
 
-    // Filter responders: allow any responder who is not assigned to another team/shift
-    // Remove status check - now gets all responders with responder role
     return responders.filter(responder => {
         const isCurrentlyAssigned = assignedUids.has(responder.uid);
         return !isCurrentlyAssigned;
@@ -146,9 +144,59 @@ export default function TeamEditorModal({
     }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     console.log('Saving team data:', formState);
-    onSave(selectedTeamKey, selectedShiftKey, formState);
+    try {
+      // --- Get PH timezone base ---
+      const now = new Date();
+      const phTime = new Date(
+        now.toLocaleString("en-US", { timeZone: "Asia/Manila" })
+      );
+
+      // --- Define fixed shift times ---
+      let shiftStart, shiftEnd;
+
+      if (selectedShiftKey === "dayShift") {
+        // 6 AM - 6 PM
+        shiftStart = new Date(phTime);
+        shiftStart.setHours(6, 0, 0, 0);
+
+        shiftEnd = new Date(phTime);
+        shiftEnd.setHours(18, 0, 0, 0);
+      } else if (selectedShiftKey === "nightShift") {
+        // 6 PM - 6 AM (next day)
+        shiftStart = new Date(phTime);
+        shiftStart.setHours(18, 0, 0, 0);
+
+        shiftEnd = new Date(phTime);
+        shiftEnd.setDate(shiftEnd.getDate() + 1); // next day
+        shiftEnd.setHours(6, 0, 0, 0);
+      }
+
+      await onSave(selectedTeamKey, selectedShiftKey, {
+        ...formState,
+        teamId,
+        shiftStart: Timestamp.fromDate(shiftStart),
+        shiftEnd: Timestamp.fromDate(shiftEnd),
+        updatedAt: Timestamp.fromDate(phTime)
+      });
+
+      const responderUpdates = Object.values(formState)
+        .filter(r => r?.uid)
+        .map(r => {
+          const userRef = doc(db, "mdrrmo-users", r.uid);
+          return updateDoc(userRef, {
+            teamId: teamId, // ✅ use full teamId ("alpha-dayShift")
+            updatedAt: Timestamp.fromDate(phTime)
+          });
+        });
+
+      await Promise.all(responderUpdates);
+
+      console.log("✅ Team & responders saved with PH shift times");
+    } catch (error) {
+      console.error("❌ Error saving team:", error);
+    }
   };
 
   if (!isOpen) return null;
