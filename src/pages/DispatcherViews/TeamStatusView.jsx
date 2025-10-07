@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, onSnapshot, orderBy } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { db, auth } from "../../firebase";
 
@@ -38,7 +38,7 @@ const getResponderStatus = (missions, teamName) => {
 
 const TeamStatusView = () => {
   const [teamStatuses, setTeamStatuses] = useState([]);
-  const [reportLogs, setReportLogs] = useState([]);
+  // Removed reportLogs state: status-only view
   const [loading, setLoading] = useState(true);
   const [expandedTeams, setExpandedTeams] = useState(new Set());
   const [userId, setUserId] = useState(null);
@@ -146,29 +146,7 @@ const TeamStatusView = () => {
     return () => unsubscribe();
   }, [userId]);
 
-  // Report logs listener
-  useEffect(() => {
-    if (!userId) return;
-
-    const unsubscribe = onSnapshot(
-      query(collection(db, "reportLogs"), orderBy("timestamp", "desc")),
-      (snapshot) => {
-        const logs = [];
-        snapshot.forEach((doc) => {
-          logs.push({
-            id: doc.id,
-            ...doc.data(),
-            timestamp: doc.data().timestamp?.toDate() || new Date(),
-          });
-        });
-        setReportLogs(logs);
-      },
-      (error) => {
-        console.error("Error fetching report logs:", error);
-      }
-    );
-    return () => unsubscribe();
-  }, [userId]);
+  // Removed report logs listener: status-only view
 
   // Incidents listener
   useEffect(() => {
@@ -234,44 +212,7 @@ const TeamStatusView = () => {
           }
         });
 
-        // Add report logs (support both assignedTeam and respondingTeam keys)
-        reportLogs.forEach((log) => {
-          // Handle both legacy single team and new multiple teams format
-          const respondingTeams = log.respondingTeams || log.respondingTeam || log.assignedTeam;
-          
-          if (Array.isArray(respondingTeams)) {
-            // New multiple teams format
-            respondingTeams.forEach(teamIdRaw => {
-              const teamKey = normalizeTeamId(teamIdRaw);
-              if (teamKey) {
-                if (!missionsPerTeam[teamKey]) {
-                  missionsPerTeam[teamKey] = [];
-                  placeholderTeamIds.add(teamKey);
-                }
-                missionsPerTeam[teamKey].push({
-                  ...log,
-                  type: "report",
-                  status: log.status || "pending",
-                });
-              }
-            });
-          } else {
-            // Legacy single team format
-            const teamKeyRaw = respondingTeams;
-            const teamKey = normalizeTeamId(teamKeyRaw);
-            if (teamKey) {
-              if (!missionsPerTeam[teamKey]) {
-                missionsPerTeam[teamKey] = [];
-                placeholderTeamIds.add(teamKey);
-              }
-              missionsPerTeam[teamKey].push({
-                ...log,
-                type: "report",
-                status: log.status || "pending",
-              });
-            }
-          }
-        });
+        // Report logs removed from Team Status aggregation
 
         // Sort by severity priority (Critical > High > Moderate > Low), then by timestamp
         const severityPriority = {
@@ -314,7 +255,7 @@ const TeamStatusView = () => {
 
         const baseTeams = Object.values(teamsData).map((team) => ({
           ...team,
-          missions: missionsPerTeam[team.id] || [],
+          missions: (missionsPerTeam[team.id] || []).filter((m) => m.status === "pending" || m.status === "in-progress"),
         }));
 
         // Create placeholder teams for any unknown team ids that received missions/logs
@@ -330,7 +271,7 @@ const TeamStatusView = () => {
             id,
             name: displayName,
             members: {},
-            missions: missionsPerTeam[id] || [],
+            missions: (missionsPerTeam[id] || []).filter((m) => m.status === "pending" || m.status === "in-progress"),
             reports: [],
           };
         });
@@ -342,7 +283,29 @@ const TeamStatusView = () => {
       (error) => console.error("Error fetching incidents:", error)
     );
     return () => unsubscribe();
-  }, [teamsData, reportLogs]);
+  }, [teamsData]);
+
+  const recallIncident = async (incidentId) => {
+    try {
+      const confirmed = window.confirm(
+        "Recall this mission? This will cancel it for the team."
+      );
+      if (!confirmed) return;
+
+      const incidentRef = doc(db, "incidents", incidentId);
+      await updateDoc(incidentRef, {
+        status: "cancelled",
+        subStatus: "Cancelled by dispatcher",
+        responderId: null,           // ensure reassignment elsewhere doesn’t keep it active on mobile
+        cancelledAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        cancelledBy: auth.currentUser?.uid || "dispatcher",
+      });
+    } catch (err) {
+      console.error("Failed to recall mission:", err);
+      alert("Failed to recall mission. Please try again.");
+    }
+};
 
   const toggleTeamExpansion = (teamId) => {
     setExpandedTeams((prevExpanded) => {
@@ -369,8 +332,6 @@ const TeamStatusView = () => {
         {status.replace("-", " ").toUpperCase()}
       </span>
     ) : null;
-
-  // Removed unused getTypeBadge helper
 
   const formatTime = (timestamp) =>
     timestamp
@@ -492,29 +453,7 @@ const TeamStatusView = () => {
                 </div>
               </div>
 
-              <div className="stat-card">
-                <div className="stat-card-content">
-                  <div className="stat-icon info">
-                    <i className="fas fa-tasks"></i>
-                  </div>
-                  <div className="stat-content">
-                    <div className="stat-number">{stats.totalMissions}</div>
-                    <div className="stat-label">Active Missions</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="stat-card">
-                <div className="stat-card-content">
-                  <div className="stat-icon success">
-                    <i className="fas fa-trophy"></i>
-                  </div>
-                  <div className="stat-content">
-                    <div className="stat-number">{stats.completedToday}</div>
-                    <div className="stat-label">Completed Today</div>
-                  </div>
-                </div>
-              </div>
+              
             </div>
 
             {/* Filter Buttons */}
@@ -556,9 +495,7 @@ const TeamStatusView = () => {
               {filteredTeams.map((team) => {
                 const isExpanded = expandedTeams.has(team.id);
                 const responderStatus = getResponderStatus(team.missions, team.name);
-                const activeMissions = team.missions.filter((m) => m.status !== "completed");
-                const reports = team.missions.filter((m) => m.type === "report");
-                const missions = team.missions.filter((m) => m.type === "mission");
+                const missions = team.missions; // already filtered to pending/in-progress
 
                 return (
                   <div key={team.id} className={`team-card status-${responderStatus.status}`}>
@@ -590,9 +527,7 @@ const TeamStatusView = () => {
                             {missions.filter((m) => m.status === "pending").length} Pending
                           </span>
                         )}
-                        {reports.length > 0 && (
-                          <span className="mission-count reports">{reports.length} Reports</span>
-                        )}
+                        
                       </div>
                     </div>
 
@@ -625,9 +560,7 @@ const TeamStatusView = () => {
                         <div className="missions-title">
                           <i className="fas fa-tasks"></i>
                           <strong>Tasks ({team.missions.length})</strong>
-                          <span className="task-breakdown">
-                            {missions.length}M • {reports.length}R
-                          </span>
+                          
                         </div>
                         {team.missions.length > 0 && (
                           <i
@@ -646,14 +579,14 @@ const TeamStatusView = () => {
                         <div className="missions-content">
                           <div className="missions-list">
                             {(isExpanded ? team.missions : team.missions.slice(0, 5)).map((item) => (
-                              <div key={item.id} className={`mission-item ${item.type}`}>
+                              <div key={item.id} className={`mission-item`}>
                                 <div className="mission-header">
                                   <div className="mission-id-priority">
                                     <strong className="mission-id">
                                       {item.reportId || item.incidentId || item.id}
                                     </strong>
-                                    <span className={`type-badge type-${item.type}`}>
-                                      {item.type === "mission" ? "MISSION" : "REPORT"}
+                                    <span className={`type-badge type-mission`}>
+                                      MISSION
                                     </span>
                                     {getPriorityBadge(item.emergencySeverity || item.priority)}
                                   </div>
@@ -680,6 +613,11 @@ const TeamStatusView = () => {
 
                                 <div className="mission-footer">
                                   {getStatusBadge(item.status)}
+                                  <div className="mission-actions">
+                                    <button className="recall-button" onClick={() => recallIncident(item.id)}>
+                                      Recall
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             ))}

@@ -109,9 +109,9 @@ const activeReports = React.useMemo(() => {
   return reportLogs
     .filter((log) => {
       if (!log) return false;
-      // Normalize status to handle case variations
-      const status = (log.status || '').trim().toLowerCase();
-      const activeStatuses = ['pending', 'acknowledged', 'in progress', 'partially complete', 'completed'];
+      // Normalize status to handle case/hyphen variations
+      const status = String(log.status || '').trim().toLowerCase().replace(/\s+/g, '-');
+      const activeStatuses = ['pending', 'acknowledged', 'in-progress', 'partially-complete', 'completed'];
       return !log.status || activeStatuses.includes(status);
     })
     .sort((a, b) => {

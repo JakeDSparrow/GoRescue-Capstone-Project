@@ -89,7 +89,16 @@ export default function LiveMapView({ mapRef, notifications = [], reportLogs = [
     if (!mapRef.current) return;
 
     const incidentsRef = collection(db, "incidents");
-    const activeStatuses = ["acknowledged", "in progress", "on scene", "transferring patient"];
+    // Use normalized hyphenated statuses to avoid retaining completed markers
+    const activeStatuses = [
+      "pending",
+      "acknowledged",
+      "en-route",
+      "in-progress",
+      "on-scene",
+      "transferring",
+      "heading-back"
+    ];
 
     // This listener will handle ALL dynamic data
     const unsubscribe = onSnapshot(incidentsRef, (snapshot) => {
@@ -99,34 +108,45 @@ export default function LiveMapView({ mapRef, notifications = [], reportLogs = [
       responderMarkersRef.current.clearLayers();
 
       // Step 2: Draw markers from props (notifications, reportLogs)
-      notifications.forEach((notif) => {
-        const coords = parseCoords(notif.coordinates || notif.location);
-        if (!coords) return;
-        L.marker([coords.lat, coords.lng], { icon: getNotificationIcon(notif) })
-          .bindPopup(`<b>📢 Notification</b><br/>Type: ${notif.type || 'N/A'}`)
-          .addTo(markersRef.current);
-      });
+      // Only include active notifications (exclude completed/cancelled/recalled)
+      const normalize = (v) => String(v || '').toLowerCase().replace(/\s+/g, '-');
+      const inactive = new Set(['completed', 'cancelled', 'canceled', 'recalled']);
+
+      notifications
+        .filter((notif) => !inactive.has(normalize(notif.type)))
+        .forEach((notif) => {
+          const coords = parseCoords(notif.coordinates || notif.location);
+          if (!coords) return;
+          L.marker([coords.lat, coords.lng], { icon: getNotificationIcon(notif) })
+            .bindPopup(`<b>📢 Notification</b><br/>Type: ${notif.type || 'N/A'}`)
+            .addTo(markersRef.current);
+        });
       
-      reportLogs.forEach((report) => {
-        const coords = parseCoords(report.location);
-        if (!coords) return;
-        L.marker([coords.lat, coords.lng], { icon: getReportIcon(report) })
-         .bindPopup(`<b>🚨 Report</b><br/>Severity: ${report.emergencySeverity || 'N/A'}`)
-         .addTo(markersRef.current);
-      });
+      // Only include active reports (exclude completed/cancelled/recalled)
+      reportLogs
+        .filter((report) => !inactive.has(normalize(report.status)))
+        .forEach((report) => {
+          const coords = parseCoords(report.location);
+          if (!coords) return;
+          L.marker([coords.lat, coords.lng], { icon: getReportIcon(report) })
+            .bindPopup(`<b>🚨 Report</b><br/>Severity: ${report.emergencySeverity || 'N/A'}`)
+            .addTo(markersRef.current);
+        });
 
       // Step 3: Draw incidents, paths, and responders from Firebase
       snapshot.forEach((doc) => {
         const incident = { id: doc.id, ...doc.data() };
-        const status = (incident.status || "").toLowerCase();
+        const status = String(incident.status || "").toLowerCase().replace(/\s+/g, "-");
         const incidentCoords = parseCoords(incident.location);
 
         if (!incidentCoords) return;
 
-        // Incident marker
-        L.marker([incidentCoords.lat, incidentCoords.lng], { icon: getReportIcon(incident) })
-          .bindPopup(`<b>🚨 Incident #${incident.id.substring(0, 5)}</b><br/>Status: ${incident.status}`)
-          .addTo(markersRef.current);
+        // Only draw markers for active statuses; skip completed/cancelled/recalled
+        if (activeStatuses.includes(status)) {
+          L.marker([incidentCoords.lat, incidentCoords.lng], { icon: getReportIcon(incident) })
+            .bindPopup(`<b>🚨 Incident</b><br/>Status: ${incident.status || 'N/A'}`)
+            .addTo(markersRef.current);
+        }
 
         // Draw path and responder marker ONLY if the incident is active
         if (activeStatuses.includes(status) && Array.isArray(incident.responderPath) && incident.responderPath.length > 0) {
@@ -152,7 +172,6 @@ export default function LiveMapView({ mapRef, notifications = [], reportLogs = [
   return (
     <div className="map-container">
       <div id="map" className="leaflet-map" />
-      {/* Your map controls and legend JSX can remain here as they were */}
        <div className="map-controls">
          <button className="map-control" title="Zoom In" onClick={() => mapRef.current?.zoomIn()}>
            <i className="fas fa-plus" />

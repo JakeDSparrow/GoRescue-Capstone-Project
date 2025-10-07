@@ -449,11 +449,21 @@ export default function DispatcherPage() {
  // A SINGLE, EFFICIENT LISTENER
 useEffect(() => {
   const incidentsRef = collection(db, 'incidents');
-  
+
+  // Hydrate last seen statuses from localStorage (guards duplicate toasts across reloads)
+  try {
+    const stored = localStorage.getItem('lastIncidentStatusMap');
+    if (stored) {
+      lastIncidentStatusRef.current = JSON.parse(stored) || {};
+    }
+  } catch (e) {
+    console.warn('Could not read lastIncidentStatusMap from localStorage');
+  }
+
   const unsubscribe = onSnapshot(incidentsRef, (snapshot) => {
     snapshot.docChanges().forEach((change) => {
-      // Only process documents that were added or modified
-      if (change.type !== 'added' && change.type !== 'modified') {
+      // Only process modified changes to avoid initial-load duplicate toasts
+      if (change.type !== 'modified') {
         return;
       }
 
@@ -467,6 +477,11 @@ useEffect(() => {
         return;
       }
       lastIncidentStatusRef.current[docId] = normalizedStatus;
+      try {
+        localStorage.setItem('lastIncidentStatusMap', JSON.stringify(lastIncidentStatusRef.current));
+      } catch (e) {
+        // ignore storage failures
+      }
 
       // Define status-to-message mapping
       const statusTextMap = {
@@ -483,20 +498,19 @@ useEffect(() => {
         return;
       }
       
-      // --- All your notification and toast logic can now go here ---
+      // --- Show toast for this real update ---
       const teamLabel = formatTeamLabel(data.respondingTeam || data.assignedTeam) || 'Team';
       const reportLabel = data.reportId || docId;
       const severity = String(data.emergencySeverity || data.severity || '').toLowerCase();
       const toastType = severity === 'critical' ? 'danger' : (severity === 'high' ? 'warning' : 'info');
 
-      // Show the toast for the status update
       showToast({
         text: `${teamLabel} ${statusMessage} for Report ${reportLabel}`,
         type: toastType,
         severity: severity,
         onClick: () => setActiveView('report-logs-view')
       });
-      
+
       // Also push an item to the notifications view
       const location = data.location || (data.latitude && data.longitude ? { lat: Number(data.latitude), lng: Number(data.longitude) } : null);
       

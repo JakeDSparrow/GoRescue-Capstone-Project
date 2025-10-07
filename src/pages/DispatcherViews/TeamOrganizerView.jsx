@@ -78,6 +78,7 @@ export default function TeamOrganizerView() {
   const [selectedTeamKey, setSelectedTeamKey] = useState(null);
   const [selectedShiftKey, setSelectedShiftKey] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isReassign, setIsReassign] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -228,6 +229,14 @@ export default function TeamOrganizerView() {
   const handleEdit = (teamKey, shiftKey) => {
     setSelectedTeamKey(teamKey);
     setSelectedShiftKey(shiftKey);
+    setIsReassign(false);
+    setIsModalOpen(true);
+  };
+
+  const handleReassign = (teamKey, shiftKey) => {
+    setSelectedTeamKey(teamKey);
+    setSelectedShiftKey(shiftKey);
+    setIsReassign(true);
     setIsModalOpen(true);
   };
 
@@ -356,8 +365,8 @@ export default function TeamOrganizerView() {
                       <button className="edit-button" onClick={() => handleEdit(teamKey, shiftKey)}>
                         ✏️ Edit
                       </button>
-                      <button className="clear-button" onClick={() => clearShift(teamKey, shiftKey)}>
-                        🗑️ Clear
+                      <button className="clear-button" onClick={() => handleReassign(teamKey, shiftKey)}>
+                        🔁 Reassign
                       </button>
                     </div>
                   </div>
@@ -414,7 +423,7 @@ export default function TeamOrganizerView() {
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
           teamDate={selectedTeamKey} // Keep for backward compatibility
-          currentTeam={teams[selectedTeamKey][selectedShiftKey]}
+          currentTeam={isReassign ? { teamLeader: null, emt1: null, emt2: null, ambulanceDriver: null } : teams[selectedTeamKey][selectedShiftKey]}
           responders={responders}
           onSave={(teamKey, shiftKey, data) => {
             handleSave(teamKey, shiftKey, data);

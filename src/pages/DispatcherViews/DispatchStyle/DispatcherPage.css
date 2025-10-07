@@ -81,7 +81,7 @@
 .time-date-display {
   display: flex;
   align-items: center;
-  font-size: 0.85rem;
+  font-size: 1rem; /* match user name size */
   color: #6c8c44;
   font-weight: 500;
   margin-right: 16px;
@@ -2265,6 +2265,33 @@
 .dispatcher-page .mission-status {
   display: flex;
   justify-content: flex-end;
+}
+
+/* Recall button styling for mission actions */
+.mission-actions {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: 12px;
+}
+
+.recall-button {
+  background: #fff5f5;
+  color: #c53030;
+  border: 1px solid #fed7d7;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.05s;
+}
+
+.recall-button:hover {
+  background: #ffe3e3;
+  border-color: #feb2b2;
+}
+
+.recall-button:active {
+  transform: translateY(1px);
 }
 
 /* Priority and Status Badges */
