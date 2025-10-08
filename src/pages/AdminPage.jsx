@@ -14,6 +14,7 @@ import "../pages/AdminViews/AdminStyle/AdminPage.css";
 
 const AdminDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeView, setActiveView] = useState('dashboard-view');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -96,17 +97,16 @@ const AdminDashboard = () => {
 
   return (
     <div className="admin-page">
-      <div className="admin-dashboard">
+      <div className={`admin-dashboard ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
         {/* Top Bar */}
         <div className="top-bar">
           <button 
             className="menu-toggle" 
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             aria-label="Toggle menu"
           >
             <i className="fas fa-bars"></i>
           </button>
-          <img src={Logo} alt="GoRescue" className="logo" />
           <div className="user-menu">
             <div className="user-avatar">AD</div>
             <button 
@@ -122,6 +122,10 @@ const AdminDashboard = () => {
 
         {/* Sidebar */}
         <div className={`sidebar ${sidebarOpen ? 'active' : ''}`}>
+          <div className="sidebar-header">
+            <img src={Logo} alt="GoRescue" className="sidebar-logo" />
+            <h3>Admin Dashboard</h3>
+          </div>
           <nav className="sidebar-menu">
             <button
               className={`menu-item ${activeView === 'dashboard-view' ? 'active' : ''}`}

@@ -75,6 +75,8 @@ export default function ReportLogsView({ onUpdate }) {
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Fetch data directly from Firestore
   useEffect(() => {
@@ -128,6 +130,15 @@ const activeReports = React.useMemo(() => {
     });
 }, [reportLogs]);
 
+  // Reset to first page when data changes
+  useEffect(() => {
+    setPage(1);
+  }, [activeReports, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(activeReports.length / pageSize));
+  const startIdx = (page - 1) * pageSize;
+  const pageItems = activeReports.slice(startIdx, startIdx + pageSize);
+
   // Debug logging - remove in production
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
@@ -179,6 +190,25 @@ const activeReports = React.useMemo(() => {
   return (
     <div className="card">
       {/* Header removed per request */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 0' }}>
+          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn-outline" style={{ padding: '4px 8px' }}>
+            Prev
+          </button>
+          <span style={{ fontSize: 12, color: '#555' }}>Page {page} / {totalPages}</span>
+          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="btn-outline" style={{ padding: '4px 8px' }}>
+            Next
+          </button>
+          <label style={{ fontSize: 12, color: '#555', marginLeft: 8 }}>Rows:</label>
+          <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={{ padding: '4px 8px' }}>
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={20}>20</option>
+            <option value={50}>50</option>
+          </select>
+        </div>
+      </div>
       <div className="table-container">
         <table className="log-table">
           <thead>
@@ -213,7 +243,7 @@ const activeReports = React.useMemo(() => {
                 </td>
               </tr>
             ) : (
-              activeReports.map((log, index) => (
+              pageItems.map((log, index) => (
                 <tr key={`${log.id || log.reportId}-${index}`}>
                   <td>{log.reportId || log.id || 'N/A'}</td>
                   <td>

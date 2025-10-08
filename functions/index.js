@@ -14,32 +14,135 @@ const admin = require('firebase-admin');
 // Initialize the Firebase Admin SDK
 admin.initializeApp();
 
-// Your existing addUser function
-exports.addUser = onRequest((request, response) => {
-    if (request.method !== 'POST') {
-        response.status(405).send('Method Not Allowed');
-        return;
+// Enhanced addUser function with complete user data and email sending
+exports.addUser = onCall({cors: true}, async (request) => {
+    if (!request.auth) {
+        throw new functions.https.HttpsError(
+            'unauthenticated',
+            'The function must be called while authenticated.',
+        );
     }
 
-    const {email, password} = request.body;
-    if (!email || !password) {
-        response.status(400).send('Email and password are required.');
-        return;
+    const userData = request.data;
+    const {email, fullName, role, phone, birthdate, age, address, gender} = userData;
+
+    if (!email || !fullName || !role) {
+        throw new functions.https.HttpsError(
+            'invalid-argument',
+            'Email, full name, and role are required.',
+        );
     }
 
-    admin.auth().createUser({
-        email: email,
-        password: password,
-    })
-        .then((userRecord) => {
-            logger.info(`Successfully created new user: ${userRecord.uid}`);
-            response.status(201).send(`User created with UID: ${userRecord.uid}`);
-        })
-        .catch((error) => {
-            logger.error('Error creating new user:', error);
-            response.status(500).send(`Error creating user: ${error.message}`);
+    try {
+        // Generate a temporary password
+        const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8).toUpperCase();
+        
+        // Create Firebase Auth user
+        const userRecord = await admin.auth().createUser({
+            email: email,
+            password: tempPassword,
+            emailVerified: false,
+            disabled: false,
         });
+
+        logger.info(`Successfully created Firebase Auth user: ${userRecord.uid}`);
+
+        // Create user document in Firestore
+        const db = admin.firestore();
+        const userDoc = {
+            uid: userRecord.uid,
+            email: email,
+            fullName: fullName,
+            role: role.toLowerCase(),
+            phone: phone || '',
+            birthdate: birthdate || '',
+            age: age || 0,
+            address: address || '',
+            gender: gender || '',
+            status: 'active',
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            needsPasswordSetup: true,
+            tempPassword: tempPassword, // Store temporarily for email
+        };
+
+        await db.collection('mdrrmo-users').doc(userRecord.uid).set(userDoc);
+        logger.info(`Successfully created user document for: ${userRecord.uid}`);
+
+        // Send password setup email
+        try {
+            await sendPasswordSetupEmail(email, fullName, tempPassword);
+            logger.info(`Password setup email sent to: ${email}`);
+        } catch (emailError) {
+            logger.error('Failed to send password setup email:', emailError);
+            // Don't fail the user creation if email fails
+        }
+
+        // Clean up temp password from document
+        await db.collection('mdrrmo-users').doc(userRecord.uid).update({
+            tempPassword: admin.firestore.FieldValue.delete()
+        });
+
+        return {
+            success: true,
+            uid: userRecord.uid,
+            message: 'User created successfully and password setup email sent.',
+        };
+
+    } catch (error) {
+        logger.error('Error creating user:', error);
+        throw new functions.https.HttpsError(
+            'internal',
+            `Error creating user: ${error.message}`,
+        );
+    }
 });
+
+// Helper function to send password setup email
+async function sendPasswordSetupEmail(email, fullName, tempPassword) {
+    const nodemailer = require('nodemailer');
+    
+    // Create transporter (you'll need to configure this with your email service)
+    const transporter = nodemailer.createTransporter({
+        service: 'gmail', // or your email service
+        auth: {
+            user: process.env.EMAIL_USER, // Set these in Firebase Functions config
+            pass: process.env.EMAIL_PASS,
+        },
+    });
+
+    const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: 'GoRescue - Complete Your Account Setup',
+        html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #6c8c44;">Welcome to GoRescue, ${fullName}!</h2>
+                <p>Your account has been created successfully. Please use the temporary password below to log in and set up your account:</p>
+                
+                <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <h3 style="margin: 0 0 10px 0; color: #333;">Your Login Credentials:</h3>
+                    <p style="margin: 5px 0;"><strong>Email:</strong> ${email}</p>
+                    <p style="margin: 5px 0;"><strong>Temporary Password:</strong> <code style="background: #fff; padding: 4px 8px; border-radius: 4px; font-weight: bold;">${tempPassword}</code></p>
+                </div>
+                
+                <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <h4 style="margin: 0 0 10px 0; color: #856404;">⚠️ Important Security Notice</h4>
+                    <p style="margin: 0; color: #856404;">Please change your password immediately after your first login for security purposes.</p>
+                </div>
+                
+                <p>You can access the GoRescue portal at: <a href="${process.env.APP_URL || 'https://your-app-url.com'}">GoRescue Portal</a></p>
+                
+                <p>If you have any questions, please contact your administrator.</p>
+                
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                <p style="font-size: 12px; color: #666;">This is an automated message from GoRescue Emergency Management System.</p>
+            </div>
+        `,
+    };
+
+    return transporter.sendMail(mailOptions);
+}
 
 // FIXED: Push notification function for incidents
 // FIXED: Push notification function for incidents with detailed debugging

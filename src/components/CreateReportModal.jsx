@@ -29,6 +29,20 @@ import { useAuth } from '../context/AuthContext';
 export { emergencySeverityMap, emergencyTypeMap };
 
 const ROLE_KEYS = ['teamLeader', 'emt1', 'emt2', 'ambulanceDriver'];
+// Map severity code (e.g., '@H') to string key used across app ('high')
+const severityCodeToKey = (code) => {
+  const normalized = String(code || '').toUpperCase();
+  const map = { '@C': 'critical', '@H': 'high', '@M': 'moderate', '@L': 'low' };
+  return map[normalized] || 'low';
+};
+
+// Map category code to legacy type key used in app ('medical' | 'accident' | 'natural')
+const categoryCodeToType = (categoryCode) => {
+  const c = String(categoryCode || '').toUpperCase();
+  const map = { ME: 'medical', AC: 'accident', NA: 'natural' };
+  return map[c] || 'medical';
+};
+
 
 
 // Helper function to safely convert various date formats to JavaScript Date
@@ -640,8 +654,8 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
     
     const incidentData = {
       incidentCode: form.incidentCode,
-      emergencyType: emergencyTypeMap[form.emergencyCategory] || 'medical',
-      emergencySeverity: emergencySeverityMap[form.severityCode] || 'low',
+      emergencyType: categoryCodeToType(form.emergencyCategory),
+      emergencySeverity: severityCodeToKey(form.severityCode),
       reporter: form.reporterName,
       contact: form.contact,
       location: { 
@@ -696,8 +710,8 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           try {
             const notificationPayload = {
               incidentCode: form.incidentCode,
-              emergencyType: emergencyTypeMap[form.emergencyCategory] || 'medical',
-              emergencySeverity: emergencySeverityMap[form.severityCode] || 'low',
+              emergencyType: categoryCodeToType(form.emergencyCategory),
+              emergencySeverity: severityCodeToKey(form.severityCode),
               location: form.location,
               teamData: team.members, // Send only this team's members
               teamName: team.teamName, // Include team name for identification

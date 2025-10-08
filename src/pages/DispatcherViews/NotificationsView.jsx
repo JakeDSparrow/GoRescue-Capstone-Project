@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { emergencyTypeMap } from '../../constants/dispatchConstants';
 
-export default function NotificationsView({ notifications, viewOnMap, dismissNotification }) {
+export default function NotificationsView({ notifications, viewOnMap, dismissNotification, clearAll }) {
   const formatDate = (timestamp) => {
     if (!timestamp) return 'N/A';
     const date = new Date(timestamp);
@@ -27,8 +27,11 @@ export default function NotificationsView({ notifications, viewOnMap, dismissNot
     <div className="notifications-container">
       {/* Header removed per request */}
 
-      {/* Filters */}
+      {/* Actions + Filters */}
       <div className="filter-buttons" style={{ marginTop: 4 }}>
+        <button onClick={() => clearAll && clearAll()} title="Clear all notifications">
+          Clear All
+        </button>
         <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>
           All ({(notifications || []).length})
         </button>
@@ -50,6 +53,8 @@ export default function NotificationsView({ notifications, viewOnMap, dismissNot
             const { id, reporter, reporterContact, status, date } = notification;
             const typeMeta = emergencyTypeMap[notification.type] || { color: '#ccc' };
             const statusLabel = status || (isCompleted(notification) ? 'Completed' : 'Pending');
+            const teamName = notification.teamName || 'Team';
+            const missionId = notification.reportId || 'N/A';
 
             return (
               <div
@@ -74,18 +79,20 @@ export default function NotificationsView({ notifications, viewOnMap, dismissNot
                 </button>
 
                 <h3 className="notification-header">
-                  {id} - {statusLabel}
+                  {isCompleted(notification) ? `${teamName} has completed Mission ${missionId}` : `${id} - ${statusLabel}`}
                 </h3>
                 <p><strong>Reporter:</strong> {reporter} ({reporterContact || 'N/A'})</p>
                 <p><strong>Date:</strong> {formatDate(date)}</p>
-                <div className="notification-actions">
-                  <button
-                    className="btn map"
-                    onClick={() => viewOnMap(notification.location)}
-                  >
-                    <i className="fas fa-map-marker-alt" /> View on Map
-                  </button>
-                </div>
+                {!isCompleted(notification) && notification.location && (
+                  <div className="notification-actions">
+                    <button
+                      className="btn map"
+                      onClick={() => viewOnMap(notification.location)}
+                    >
+                      <i className="fas fa-map-marker-alt" /> View on Map
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}

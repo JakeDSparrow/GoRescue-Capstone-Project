@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { getAuth, signOut } from 'firebase/auth';
-import { getFirestore, doc, getDoc, collection, onSnapshot } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, collection, onSnapshot, addDoc, deleteDoc } from 'firebase/firestore';
 import alertSound from '../assets/alertSound.mp3';
 import LiveMapView from './DispatcherViews/LiveMapView';
 import NotificationsView from './DispatcherViews/NotificationsView';
@@ -53,6 +53,7 @@ export default function DispatcherPage() {
   const [currentTeam, setCurrentTeam] = useState(null);
   const [teams, setTeams] = useState({ alpha: [], bravo: [] });
   const [toasts, setToasts] = useState([]);
+  const [mapCleanupInfo, setMapCleanupInfo] = useState(null);
   const lastIncidentStatusRef = useRef({});
 
   const showToast = (payload) => {
@@ -511,20 +512,24 @@ useEffect(() => {
         onClick: () => setActiveView('report-logs-view')
       });
 
-      // Also push an item to the notifications view
-      const location = data.location || (data.latitude && data.longitude ? { lat: Number(data.latitude), lng: Number(data.longitude) } : null);
-      
-      setNotifications(prev => [...prev, {
-        id: `${normalizedStatus}-${docId}-${Date.now()}`,
+      // If completed, trigger a map cleanup signal so finished markers are removed immediately
+      if (normalizedStatus === 'completed') {
+        setMapCleanupInfo({ ts: Date.now(), incidentId: docId });
+      }
+
+      // Also write a notification document (no map coordinate needed)
+      const notifDoc = {
         type: normalizedStatus,
         title: `Status Update: ${data.status}`,
         details: `Report ${reportLabel} status updated by ${data.acknowledgedBy || 'a team member'}`,
+        teamName: formatTeamLabel(data.respondingTeam || data.assignedTeam) || 'Team',
+        reportId: reportLabel,
         severity: severity,
         reporter: data.reporter || 'Unknown',
-        location: location,
         timestamp: new Date().toISOString(),
         responded: true
-      }]);
+      };
+      try { addDoc(collection(db, 'notifications'), notifDoc); } catch(_) {}
     });
   }, (error) => {
     console.error('Error listening for incident updates:', error);
@@ -532,6 +537,32 @@ useEffect(() => {
 
   return () => unsubscribe();
 }, [db]); // Dependency array should be minimal
+
+  // Listen to notifications collection
+  useEffect(() => {
+    const notifsRef = collection(db, 'notifications');
+    const unsub = onSnapshot(notifsRef, (snapshot) => {
+      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setNotifications(docs.sort((a,b) => new Date(b.timestamp||0) - new Date(a.timestamp||0)));
+    });
+    return () => unsub();
+  }, [db]);
+
+  const clearAllNotifications = async () => {
+    try {
+      const notifsRef = collection(db, 'notifications');
+      // onSnapshot provides docs in state; delete by id
+      const current = notifications || [];
+      await Promise.all(current.map(n => deleteDoc(doc(db, 'notifications', n.id))));
+      setNotifications([]);
+    } catch (e) {
+      console.error('Failed to clear notifications', e);
+    }
+  };
+
+  const dismissNotification = async (id) => {
+    try { await deleteDoc(doc(db, 'notifications', id)); } catch(e) { console.warn('dismiss failed', e); }
+  };
 
   const handleLogoutClick = () => setShowLogoutConfirm(true);
   
@@ -632,7 +663,7 @@ useEffect(() => {
   ];
 
   const viewConfig = {
-    'map-view': <LiveMapView mapRef={mapRef} notifications={notifications} reportLogs={reportLogs} setReportLogs={setReportLogs} teams={teams} />,
+    'map-view': <LiveMapView mapRef={mapRef} notifications={notifications} reportLogs={reportLogs} setReportLogs={setReportLogs} teams={teams} cleanupInfo={mapCleanupInfo} />,
     'notifications-view': <NotificationsView
       notifications={notifications}
       dispatchTeam={dispatchTeam}
@@ -642,7 +673,9 @@ useEffect(() => {
       onHoverLeave={handleMouseLeave}
       availableTeams={teams}
       createTeam={handleCreateTeam}
-    />,
+      dismissNotification={dismissNotification}
+      clearAll={clearAllNotifications}
+    />, 
     'report-logs-view': <ReportLogsView reportLogs={reportLogs} setReportLogs={setReportLogs} formatDateTime={formatDateTime} />,
     'team-organizer-view': <TeamOrganizerView responders={currentTeam} />,
     'incident-history-view': <IncidentHistoryView />,
@@ -654,7 +687,6 @@ useEffect(() => {
       <div className={`dispatcher-layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
         <div className="top-bar">
           <div className="menu-toggle" onClick={toggleSidebar} aria-label="Toggle sidebar" role="button" tabIndex={0}><i className="fas fa-bars" /></div>
-          <img src={Logo} alt="Victoria Rescue Logo" className="logo-small" />
           <div className="user-menu">
             <div className="time-date-display">
               <i className="fas fa-clock" style={{ marginRight: '6px', color: '#6c8c44' }} />
@@ -671,7 +703,10 @@ useEffect(() => {
         </div>
 
         <div className="sidebar">
-          <div className="sidebar-header"><h3>Dispatcher Dashboard</h3></div>
+          <div className="sidebar-header">
+            <img src={Logo} alt="Victoria Rescue Logo" className="sidebar-logo" />
+            <h3>Dispatcher Dashboard</h3>
+          </div>
           <div className="sidebar-menu">
             {menuItems.map((menuItem) => (
               <div

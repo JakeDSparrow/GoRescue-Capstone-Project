@@ -48,11 +48,13 @@ const getResponderIcon = () => L.divIcon({
 });
 
 
-export default function LiveMapView({ mapRef, notifications = [], reportLogs = [] }) {
+export default function LiveMapView({ mapRef, notifications = [], reportLogs = [], cleanupInfo }) {
   //Refs for each type of map layer for proper management
   const markersRef = useRef(new L.LayerGroup());
   const pathsRef = useRef(new L.LayerGroup());
   const responderMarkersRef = useRef(new L.LayerGroup());
+  const lastCleanTimestampRef = useRef(0);
+  const incidentIdToLayerRefs = useRef({}); // track marker/path/responder per-incident
   
   const victoriaTarlac = [15.5784, 120.6819];
 
@@ -102,36 +104,43 @@ export default function LiveMapView({ mapRef, notifications = [], reportLogs = [
 
     // This listener will handle ALL dynamic data
     const unsubscribe = onSnapshot(incidentsRef, (snapshot) => {
-      // Step 1: ALWAYS clear all dynamic layers before redrawing
+      // Defensive cleanup: remove stray emergency markers/circles, keep base tile/grid layer
+      try {
+        const map = mapRef.current;
+        if (window.emergencyMarker && map) {
+          map.removeLayer(window.emergencyMarker);
+          window.emergencyMarker = null;
+        }
+        if (map && typeof map.eachLayer === 'function') {
+          map.eachLayer((layer) => {
+            const isOurGroup = (layer === markersRef.current || layer === pathsRef.current || layer === responderMarkersRef.current);
+            if (isOurGroup) return;
+            // Preserve base layers: GoogleMutant is a GridLayer, standard tiles are TileLayer
+            if ((typeof L.GridLayer !== 'undefined' && layer instanceof L.GridLayer) || (layer instanceof L.TileLayer)) return;
+            const isCircle = (layer instanceof L.Circle) || (layer instanceof L.CircleMarker);
+            let isEmergencyMarker = false;
+            try {
+              const icon = layer?.options?.icon;
+              const className = icon?.options?.className || layer?.options?.className;
+              if (className && String(className).includes('emergency-marker')) {
+                isEmergencyMarker = true;
+              }
+            } catch (_) {}
+            if (isCircle || isEmergencyMarker) {
+              try { map.removeLayer(layer); } catch (_) {}
+            }
+          });
+        }
+      } catch (_) {}
+      // Ensure groups and per-incident registry are empty before redrawing
       markersRef.current.clearLayers();
       pathsRef.current.clearLayers();
       responderMarkersRef.current.clearLayers();
+      incidentIdToLayerRefs.current = {};
 
-      // Step 2: Draw markers from props (notifications, reportLogs)
-      // Only include active notifications (exclude completed/cancelled/recalled)
+      // Step 2: Skip drawing reportLog-based markers entirely to avoid stale local markers
       const normalize = (v) => String(v || '').toLowerCase().replace(/\s+/g, '-');
       const inactive = new Set(['completed', 'cancelled', 'canceled', 'recalled']);
-
-      notifications
-        .filter((notif) => !inactive.has(normalize(notif.type)))
-        .forEach((notif) => {
-          const coords = parseCoords(notif.coordinates || notif.location);
-          if (!coords) return;
-          L.marker([coords.lat, coords.lng], { icon: getNotificationIcon(notif) })
-            .bindPopup(`<b>📢 Notification</b><br/>Type: ${notif.type || 'N/A'}`)
-            .addTo(markersRef.current);
-        });
-      
-      // Only include active reports (exclude completed/cancelled/recalled)
-      reportLogs
-        .filter((report) => !inactive.has(normalize(report.status)))
-        .forEach((report) => {
-          const coords = parseCoords(report.location);
-          if (!coords) return;
-          L.marker([coords.lat, coords.lng], { icon: getReportIcon(report) })
-            .bindPopup(`<b>🚨 Report</b><br/>Severity: ${report.emergencySeverity || 'N/A'}`)
-            .addTo(markersRef.current);
-        });
 
       // Step 3: Draw incidents, paths, and responders from Firebase
       snapshot.forEach((doc) => {
@@ -143,9 +152,11 @@ export default function LiveMapView({ mapRef, notifications = [], reportLogs = [
 
         // Only draw markers for active statuses; skip completed/cancelled/recalled
         if (activeStatuses.includes(status)) {
-          L.marker([incidentCoords.lat, incidentCoords.lng], { icon: getReportIcon(incident) })
-            .bindPopup(`<b>🚨 Incident</b><br/>Status: ${incident.status || 'N/A'}`)
-            .addTo(markersRef.current);
+          const m = L.marker([incidentCoords.lat, incidentCoords.lng], { icon: getReportIcon(incident) })
+            .bindPopup(`<b>🚨 Incident</b><br/>Status: ${incident.status || 'N/A'}`);
+          m.addTo(markersRef.current);
+          if (!incidentIdToLayerRefs.current[incident.id]) incidentIdToLayerRefs.current[incident.id] = {};
+          incidentIdToLayerRefs.current[incident.id].marker = m;
         }
 
         // Draw path and responder marker ONLY if the incident is active
@@ -153,21 +164,109 @@ export default function LiveMapView({ mapRef, notifications = [], reportLogs = [
           const polylinePoints = incident.responderPath.map(p => parseCoords(p)).filter(Boolean);
 
           if (polylinePoints.length > 1) {
-            L.polyline(polylinePoints.map(p => [p.lat, p.lng]), { color: "#007bff", weight: 5, opacity: 0.8 }).addTo(pathsRef.current);
+            const pl = L.polyline(polylinePoints.map(p => [p.lat, p.lng]), { color: "#007bff", weight: 5, opacity: 0.8 }).addTo(pathsRef.current);
+            if (!incidentIdToLayerRefs.current[incident.id]) incidentIdToLayerRefs.current[incident.id] = {};
+            incidentIdToLayerRefs.current[incident.id].path = pl;
           }
           
           const currentLoc = parseCoords(incident.responderLocation || incident.responderPath[incident.responderPath.length - 1]);
           if (currentLoc) {
-            L.marker([currentLoc.lat, currentLoc.lng], { icon: getResponderIcon() })
-              .bindPopup(`Responder for Incident #${incident.id.substring(0, 5)}`)
-              .addTo(responderMarkersRef.current);
+            const rm = L.marker([currentLoc.lat, currentLoc.lng], { icon: getResponderIcon() })
+              .bindPopup(`Responder for Incident #${incident.id.substring(0, 5)}`);
+            rm.addTo(responderMarkersRef.current);
+            if (!incidentIdToLayerRefs.current[incident.id]) incidentIdToLayerRefs.current[incident.id] = {};
+            incidentIdToLayerRefs.current[incident.id].responder = rm;
           }
         }
       });
+
+      // Persist a minimal cache snapshot for sync/cleanup heuristics
+      try {
+        const cache = {
+          lastDrawAt: Date.now(),
+          activeMarkerCount: markersRef.current.getLayers().length,
+          activePathCount: pathsRef.current.getLayers().length,
+          activeResponderCount: responderMarkersRef.current.getLayers().length
+        };
+        sessionStorage.setItem('liveMapCache', JSON.stringify(cache));
+      } catch (_) {}
     });
 
     return () => unsubscribe(); // Cleanup listener on component unmount
   }, [mapRef, notifications, reportLogs]); // Rerun if map is ready or props change
+
+  // 5. React to external cleanup info: remove layers for completed incident id immediately
+  useEffect(() => {
+    if (!cleanupInfo || !cleanupInfo.incidentId) return;
+    const { incidentId } = cleanupInfo;
+    const refs = incidentIdToLayerRefs.current[incidentId];
+    const map = mapRef.current;
+    if (refs && map) {
+      try { if (refs.marker) map.removeLayer(refs.marker); } catch(_) {}
+      try { if (refs.path) map.removeLayer(refs.path); } catch(_) {}
+      try { if (refs.responder) map.removeLayer(refs.responder); } catch(_) {}
+      delete incidentIdToLayerRefs.current[incidentId];
+    }
+    // Also clear any global emergency marker
+    try { if (window.emergencyMarker && map) { map.removeLayer(window.emergencyMarker); window.emergencyMarker = null; } } catch(_) {}
+  }, [cleanupInfo]);
+
+  // 3. Cleanup function similar to endMissionCleanup
+  const endMissionCleanup = () => {
+    // Stop any tracking-related intervals/listeners owned by this view (none explicit here)
+    // Reset map dynamic layers
+    if (markersRef.current) markersRef.current.clearLayers();
+    if (pathsRef.current) pathsRef.current.clearLayers();
+    if (responderMarkersRef.current) responderMarkersRef.current.clearLayers();
+
+    // Clear stale cache so completed incidents do not reappear from persisted state
+    try {
+      sessionStorage.removeItem('liveMapCache');
+      const dispatcherData = sessionStorage.getItem('dispatcherData');
+      if (dispatcherData) {
+        const parsed = JSON.parse(dispatcherData);
+        // remove any completed items from notifications and reportLogs
+        const normalize = (v) => String(v || '').toLowerCase().replace(/\s+/g, '-');
+        const inactive = new Set(['completed', 'cancelled', 'canceled', 'recalled']);
+        const cleanedNotifs = Array.isArray(parsed.notifications)
+          ? parsed.notifications.filter(n => !inactive.has(normalize(n.type)))
+          : [];
+        const cleanedReports = Array.isArray(parsed.reportLogs)
+          ? parsed.reportLogs.filter(r => !inactive.has(normalize(r.status)))
+          : [];
+        sessionStorage.setItem('dispatcherData', JSON.stringify({
+          ...parsed,
+          notifications: cleanedNotifs,
+          reportLogs: cleanedReports,
+          timestamp: Date.now()
+        }));
+      }
+    } catch (_) {}
+    lastCleanTimestampRef.current = Date.now();
+  };
+
+  // 4. Add a small control to trigger cleanup
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+    const CleanControl = L.Control.extend({
+      onAdd: function() {
+        const btn = L.DomUtil.create('button', 'map-control');
+        btn.title = 'Clean Map';
+        btn.innerHTML = '<i class="fas fa-broom"></i>';
+        L.DomEvent.on(btn, 'click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          endMissionCleanup();
+        });
+        return btn;
+      }
+    });
+    const ctrl = new CleanControl({ position: 'topright' });
+    map.addControl(ctrl);
+    return () => {
+      try { map.removeControl(ctrl); } catch(_) {}
+    };
+  }, [mapRef]);
 
   return (
     <div className="map-container">

@@ -12,6 +12,8 @@ export default function IncidentHistoryView() {
   const [selectedSeverity, setSelectedSeverity] = useState('All');
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [attachmentTooltip, setAttachmentTooltip] = useState({ show: false, content: '', x: 0, y: 0 });
 
   // Fetch incidents from Firestore
@@ -152,6 +154,13 @@ export default function IncidentHistoryView() {
         return new Date(dateB) - new Date(dateA);
       });
   }, [filteredLogs]);
+
+  // Pagination derived data for completed operations
+  const completedTotalPages = Math.max(1, Math.ceil(completedOperations.length / pageSize));
+  const completedStartIdx = (page - 1) * pageSize;
+  const completedPageItems = completedOperations.slice(completedStartIdx, completedStartIdx + pageSize);
+
+  useEffect(() => { setPage(1); }, [filteredLogs, pageSize]);
 
   // Calculate statistics for charts
   const chartData = useMemo(() => {
@@ -509,6 +518,18 @@ export default function IncidentHistoryView() {
             <h2>Completed Operations</h2>
             <p>Summary of completed rescue missions</p>
           </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, paddingBottom: 8 }}>
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn-outline" style={{ padding: '4px 8px' }}>Prev</button>
+            <span style={{ fontSize: 12, color: '#6b7280' }}>Page {page} / {completedTotalPages}</span>
+            <button onClick={() => setPage((p) => Math.min(completedTotalPages, p + 1))} disabled={page === completedTotalPages} className="btn-outline" style={{ padding: '4px 8px' }}>Next</button>
+            <label style={{ fontSize: 12, color: '#6b7280', marginLeft: 8 }}>Rows:</label>
+            <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={{ padding: '4px 8px' }}>
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+            </select>
+          </div>
           
           {completedOperations.length === 0 ? (
             <div className="no-teams-message">
@@ -526,7 +547,7 @@ export default function IncidentHistoryView() {
                 <div className="table-cell">Attachments</div>
               </div>
               
-              {completedOperations.map((operation) => (
+              {completedPageItems.map((operation) => (
                 <div key={operation.id} className="table-row">
                   <div className="table-cell">
                     <span className="report-id">
