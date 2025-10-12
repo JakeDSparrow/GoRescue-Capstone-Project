@@ -194,6 +194,17 @@ export default function ViewModal({ isOpen, onClose, report }) {
             <div className="view-detail-value">{renderStatus(report.status)}</div>
           </div>
 
+          {/* Cancellation Reason - Only show for cancelled reports */}
+          {(report.status === 'cancelled' || report.status === 'Cancelled') && report.cancellationReason && (
+            <div className="view-detail-row cancellation-reason">
+              <div className="view-detail-label">Cancellation Reason:</div>
+              <div className="view-detail-value cancellation-reason-text">
+                <i className="fas fa-exclamation-triangle"></i>
+                {safeRender(report.cancellationReason)}
+              </div>
+            </div>
+          )}
+
           <div className="view-detail-row">
             <div className="view-detail-label">Timestamp:</div>
             <div className="view-detail-value">

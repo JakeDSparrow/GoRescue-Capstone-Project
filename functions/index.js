@@ -7,7 +7,7 @@
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
 const functions = require('firebase-functions');
-const {onRequest, onCall} = require('firebase-functions/v2/https');
+const {onCall} = require('firebase-functions/v2/https');
 const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
 
@@ -24,7 +24,7 @@ exports.addUser = onCall({cors: true}, async (request) => {
     }
 
     const userData = request.data;
-    const {email, fullName, role, phone, birthdate, age, address, gender} = userData;
+    const {email, fullName, role, phone, birthdate, age, address, gender, fcmToken} = userData;
 
     if (!email || !fullName || !role) {
         throw new functions.https.HttpsError(
@@ -34,9 +34,8 @@ exports.addUser = onCall({cors: true}, async (request) => {
     }
 
     try {
-        // Generate a temporary password
-        const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8).toUpperCase();
-        
+        // Generate a strong temporary password (not shared with user)
+        const tempPassword = Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10).toUpperCase() + Math.floor(Math.random() * 1000);
         // Create Firebase Auth user
         const userRecord = await admin.auth().createUser({
             email: email,
@@ -60,35 +59,34 @@ exports.addUser = onCall({cors: true}, async (request) => {
             address: address || '',
             gender: gender || '',
             status: 'active',
+            fcmToken: '', // Empty field for future FCM implementation
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             needsPasswordSetup: true,
-            tempPassword: tempPassword, // Store temporarily for email
         };
 
         await db.collection('mdrrmo-users').doc(userRecord.uid).set(userDoc);
         logger.info(`Successfully created user document for: ${userRecord.uid}`);
 
-        // Send password setup email
+        // Generate password reset link and send email
         try {
-            await sendPasswordSetupEmail(email, fullName, tempPassword);
-            logger.info(`Password setup email sent to: ${email}`);
+            const actionCodeSettings = {
+                url: 'http://localhost:3000/login', // Use localhost for development
+                handleCodeInApp: false,
+            };
+            const resetLink = await admin.auth().generatePasswordResetLink(email, actionCodeSettings);
+            await sendPasswordSetupEmail(email, fullName, resetLink);
+            logger.info(`Password reset link sent to: ${email}`);
         } catch (emailError) {
-            logger.error('Failed to send password setup email:', emailError);
+            logger.error('Failed to send password reset link:', emailError);
             // Don't fail the user creation if email fails
         }
-
-        // Clean up temp password from document
-        await db.collection('mdrrmo-users').doc(userRecord.uid).update({
-            tempPassword: admin.firestore.FieldValue.delete()
-        });
 
         return {
             success: true,
             uid: userRecord.uid,
-            message: 'User created successfully and password setup email sent.',
+            message: 'User created successfully and password reset link sent.',
         };
-
     } catch (error) {
         logger.error('Error creating user:', error);
         throw new functions.https.HttpsError(
@@ -98,37 +96,79 @@ exports.addUser = onCall({cors: true}, async (request) => {
     }
 });
 
-// Helper function to send password setup email
-async function sendPasswordSetupEmail(email, fullName, tempPassword) {
+/**
+ * Helper function to send password setup email (via password reset link)
+ * @param {string} email - User's email address
+ * @param {string} fullName - User's full name
+ * @param {string} resetLink - Password reset link
+ * @return {Promise} Email sending result
+ */
+async function sendPasswordSetupEmail(email, fullName, resetLink) {
     const nodemailer = require('nodemailer');
-    
-    // Create transporter (you'll need to configure this with your email service)
-    const transporter = nodemailer.createTransporter({
-        service: 'gmail', // or your email service
-        auth: {
-            user: process.env.EMAIL_USER, // Set these in Firebase Functions config
-            pass: process.env.EMAIL_PASS,
-        },
-    });
+
+    // Try multiple email configurations for better reliability
+    let transporter;
+
+    try {
+        // First try: Gmail with app password
+        if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+            transporter = nodemailer.createTransport({
+                service: 'gmail',
+                auth: {
+                    user: process.env.EMAIL_USER,
+                    pass: process.env.EMAIL_PASS,
+                },
+            });
+        } 
+        // Second try: SendGrid (more reliable)
+        else if (process.env.SENDGRID_API_KEY) {
+            transporter = nodemailer.createTransport({
+                service: 'SendGrid',
+                auth: {
+                    user: 'apikey',
+                    pass: process.env.SENDGRID_API_KEY,
+                },
+            });
+        }
+        // Fallback: Use a generic SMTP (you can configure this)
+        else {
+            transporter = nodemailer.createTransport({
+                host: 'smtp.gmail.com',
+                port: 587,
+                secure: false,
+                auth: {
+                    user: process.env.EMAIL_USER || 'your-email@gmail.com',
+                    pass: process.env.EMAIL_PASS || 'your-app-password',
+                },
+            });
+        }
+    } catch (error) {
+        logger.error('Error creating email transporter:', error);
+        throw new Error('Email service not configured properly');
+    }
 
     const mailOptions = {
-        from: process.env.EMAIL_USER,
+        from: process.env.EMAIL_USER || 'noreply@gorescue.com',
         to: email,
         subject: 'GoRescue - Complete Your Account Setup',
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2 style="color: #6c8c44;">Welcome to GoRescue, ${fullName}!</h2>
-                <p>Your account has been created successfully. Please use the temporary password below to log in and set up your account:</p>
+                <p>Your account has been created successfully. To set your password securely, click the button below:</p>
                 
-                <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                    <h3 style="margin: 0 0 10px 0; color: #333;">Your Login Credentials:</h3>
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="${resetLink}" style="background: #6c8c44; color: #fff; text-decoration: none; padding: 15px 30px; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 16px;">Set Your Password</a>
+                </div>
+                
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <h3 style="margin: 0 0 10px 0; color: #333;">Your Account Details:</h3>
                     <p style="margin: 5px 0;"><strong>Email:</strong> ${email}</p>
-                    <p style="margin: 5px 0;"><strong>Temporary Password:</strong> <code style="background: #fff; padding: 4px 8px; border-radius: 4px; font-weight: bold;">${tempPassword}</code></p>
+                    <p style="margin: 5px 0;"><strong>Status:</strong> Active</p>
                 </div>
                 
                 <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0;">
                     <h4 style="margin: 0 0 10px 0; color: #856404;">⚠️ Important Security Notice</h4>
-                    <p style="margin: 0; color: #856404;">Please change your password immediately after your first login for security purposes.</p>
+                    <p style="margin: 0; color: #856404;">This link allows you to set a secure password for your account. If you did not request this, please contact your administrator immediately.</p>
                 </div>
                 
                 <p>You can access the GoRescue portal at: <a href="${process.env.APP_URL || 'https://your-app-url.com'}">GoRescue Portal</a></p>
@@ -141,8 +181,59 @@ async function sendPasswordSetupEmail(email, fullName, tempPassword) {
         `,
     };
 
-    return transporter.sendMail(mailOptions);
+    try {
+        const result = await transporter.sendMail(mailOptions);
+        logger.info(`Email sent successfully to ${email}:`, result.messageId);
+        return result;
+    } catch (error) {
+        logger.error(`Failed to send email to ${email}:`, error);
+        throw error;
+    }
 }
+
+// Test email function for debugging
+exports.testEmail = onCall({cors: true}, async (request) => {
+    if (!request.auth) {
+        throw new functions.https.HttpsError(
+            'unauthenticated',
+            'The function must be called while authenticated.',
+        );
+    }
+
+    const { email, fullName } = request.data;
+    
+    if (!email) {
+        throw new functions.https.HttpsError(
+            'invalid-argument',
+            'Email is required for testing.',
+        );
+    }
+
+    try {
+        // Generate a test reset link
+        const actionCodeSettings = {
+            url: process.env.APP_URL || 'https://your-app-url.com/login',
+            handleCodeInApp: false,
+        };
+        const resetLink = await admin.auth().generatePasswordResetLink(email, actionCodeSettings);
+        
+        // Send test email
+        await sendPasswordSetupEmail(email, fullName || 'Test User', resetLink);
+        
+        return {
+            success: true,
+            message: `Test email sent to ${email}`,
+            resetLink: resetLink // For debugging
+        };
+    } catch (error) {
+        logger.error('Test email failed:', error);
+        return {
+            success: false,
+            error: error.message,
+            message: 'Test email failed. Check logs for details.'
+        };
+    }
+});
 
 // FIXED: Push notification function for incidents
 // FIXED: Push notification function for incidents with detailed debugging

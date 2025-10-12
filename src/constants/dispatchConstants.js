@@ -184,6 +184,10 @@ export const statusMap = {
     color: '#2ecc71',
     label: 'Completed',
   },
+  cancelled: {
+    color: '#e74c3c',
+    label: 'Cancelled',
+  },
 };
 
 // === EMERGENCY CODE SYSTEM (manual input) ===

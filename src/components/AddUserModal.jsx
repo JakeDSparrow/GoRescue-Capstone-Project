@@ -130,6 +130,7 @@ export default function AddUserModal({ onClose, onSubmit }) {
                             <option value="dispatcher">Dispatcher</option>
                         </select>
                     </div>
+
                     
                     <div className="info-box">
                         📧 The user will receive instructions to complete their registration using the provided email address.

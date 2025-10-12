@@ -1,0 +1,336 @@
+import React, { useState, useEffect } from 'react';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { db } from '../../firebase';
+import './DispatchStyle/DispatcherPage.css';
+
+const SavedDocumentsView = () => {
+  const [documents, setDocuments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedDocument, setSelectedDocument] = useState(null);
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+
+  useEffect(() => {
+    console.log('SavedDocumentsView: Setting up Firestore listener for saved_documents collection');
+    
+    const unsubscribe = onSnapshot(
+      query(collection(db, "saved_documents"), orderBy("createdAt", "desc")),
+      (snapshot) => {
+        console.log('SavedDocumentsView: Received snapshot with', snapshot.docs.length, 'documents');
+        const docs = [];
+        snapshot.forEach((doc) => {
+          try {
+            const data = doc.data();
+            docs.push({
+              id: doc.id,
+              ...data,
+              createdAt: data.createdAt?.toDate() || new Date(),
+            });
+          } catch (err) {
+            console.error('Error processing document:', doc.id, err);
+          }
+        });
+        setDocuments(docs);
+        setLoading(false);
+        setError(null);
+      },
+      (error) => {
+        console.error('Error fetching saved documents:', error);
+        setError(error.message);
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      console.log('SavedDocumentsView: Cleaning up listener');
+      unsubscribe();
+    };
+  }, []);
+
+  const handleViewDocument = (document) => {
+    setSelectedDocument(document);
+    setViewModalOpen(true);
+  };
+
+  const closeViewModal = () => {
+    setViewModalOpen(false);
+    setSelectedDocument(null);
+  };
+
+  const formatDateTime = (date) => {
+    if (!date) return 'N/A';
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  const getStatusBadge = (status) => {
+    const statusClass = status === 'submitted' ? 'status-submitted' : 'status-draft';
+    const displayText = status === 'submitted' ? 'SUBMITTED' : 'DRAFT';
+    
+    return (
+      <span className={`status-badge ${statusClass}`}>
+        {displayText}
+      </span>
+    );
+  };
+
+  const getDocumentTypeIcon = (type) => {
+    switch (type) {
+      case 'PCR_Form_Activity':
+        return 'fa-file-medical';
+      case 'PCR_Transport_Refusal':
+        return 'fa-file-medical-alt';
+      default:
+        return 'fa-file-alt';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="dispatcher-page">
+        <div className="team-dashboard-loading">
+          <div className="loading-content">
+            <div className="loading-spinner"></div>
+            <p>Loading saved documents...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="dispatcher-page">
+        <div className="team-missions-dashboard">
+          <div className="dashboard-header">
+            <h2>Saved Documents</h2>
+            <p>View and manage documents submitted by responders</p>
+          </div>
+          <div className="error-state">
+            <i className="fas fa-exclamation-triangle"></i>
+            <h3>Error Loading Documents</h3>
+            <p>{error}</p>
+            <button 
+              className="btn-retry"
+              onClick={() => window.location.reload()}
+            >
+              <i className="fas fa-refresh"></i>
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="dispatcher-page">
+      <div className="team-missions-dashboard">
+        <div className="dashboard-header">
+          <h2>Saved Documents</h2>
+          <p>View and manage documents submitted by responders</p>
+        </div>
+
+        {documents.length === 0 ? (
+          <div className="no-documents">
+            <i className="fas fa-file-medical"></i>
+            <h3>No documents found</h3>
+            <p>No documents have been submitted yet.</p>
+            <div className="help-text">
+              <p><strong>Note:</strong> Documents will appear here once responders submit forms from the mobile app.</p>
+              <p>Make sure the mobile app is properly configured to save documents to the "saved_documents" collection.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="documents-grid">
+            {documents.map((doc) => (
+              <div key={doc.id} className="document-card">
+                <div className="document-header">
+                  <div className="document-type">
+                    <i className={`fas ${getDocumentTypeIcon(doc.documentType)}`}></i>
+                    <span>{doc.documentType}</span>
+                  </div>
+                  {getStatusBadge(doc.status)}
+                </div>
+
+                <div className="document-info">
+                  <div className="info-row">
+                    <strong>Mission ID:</strong>
+                    <span>{doc.missionId}</span>
+                  </div>
+                  <div className="info-row">
+                    <strong>Report ID:</strong>
+                    <span>{doc.reportId}</span>
+                  </div>
+                  <div className="info-row">
+                    <strong>Team:</strong>
+                    <span>{doc.teamName || 'N/A'}</span>
+                  </div>
+                  <div className="info-row">
+                    <strong>Created by:</strong>
+                    <span>{doc.createdBy}</span>
+                  </div>
+                  <div className="info-row">
+                    <strong>Created at:</strong>
+                    <span>{formatDateTime(doc.createdAt)}</span>
+                  </div>
+                  {doc.incidentLocation && (
+                    <div className="info-row">
+                      <strong>Location:</strong>
+                      <span>{doc.incidentLocation}</span>
+                    </div>
+                  )}
+                  {doc.emergencyType && (
+                    <div className="info-row">
+                      <strong>Emergency Type:</strong>
+                      <span>{doc.emergencyType}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="document-actions">
+                  <button 
+                    className="btn-view"
+                    onClick={() => handleViewDocument(doc)}
+                  >
+                    <i className="fas fa-eye"></i>
+                    View Details
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* View Modal */}
+        {viewModalOpen && selectedDocument && (
+          <div className="modal-overlay">
+            <div className="modal view-modal">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h2>Document Details</h2>
+                  <button className="close-btn" onClick={closeViewModal}>&times;</button>
+                </div>
+                <div className="modal-body">
+                  <div className="document-details">
+                    <div className="detail-section">
+                      <h3>Document Information</h3>
+                      <div className="detail-grid">
+                        <div className="detail-item">
+                          <strong>Document ID:</strong>
+                          <span>{selectedDocument.documentId}</span>
+                        </div>
+                        <div className="detail-item">
+                          <strong>Document Type:</strong>
+                          <span>{selectedDocument.documentType}</span>
+                        </div>
+                        <div className="detail-item">
+                          <strong>Status:</strong>
+                          {getStatusBadge(selectedDocument.status)}
+                        </div>
+                        <div className="detail-item">
+                          <strong>Mission ID:</strong>
+                          <span>{selectedDocument.missionId}</span>
+                        </div>
+                        <div className="detail-item">
+                          <strong>Report ID:</strong>
+                          <span>{selectedDocument.reportId}</span>
+                        </div>
+                        <div className="detail-item">
+                          <strong>Team Name:</strong>
+                          <span>{selectedDocument.teamName || 'N/A'}</span>
+                        </div>
+                        <div className="detail-item">
+                          <strong>Created By:</strong>
+                          <span>{selectedDocument.createdBy}</span>
+                        </div>
+                        <div className="detail-item">
+                          <strong>Created At:</strong>
+                          <span>{formatDateTime(selectedDocument.createdAt)}</span>
+                        </div>
+                        {selectedDocument.incidentLocation && (
+                          <div className="detail-item">
+                            <strong>Incident Location:</strong>
+                            <span>{selectedDocument.incidentLocation}</span>
+                          </div>
+                        )}
+                        {selectedDocument.reporterName && (
+                          <div className="detail-item">
+                            <strong>Reporter Name:</strong>
+                            <span>{selectedDocument.reporterName}</span>
+                          </div>
+                        )}
+                        {selectedDocument.emergencyType && (
+                          <div className="detail-item">
+                            <strong>Emergency Type:</strong>
+                            <span>{selectedDocument.emergencyType}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedDocument.formData && (
+                      <div className="detail-section">
+                        <h3>Form Data</h3>
+                        <div className="form-data-container">
+                          <pre className="form-data-json">
+                            {(() => {
+                              try {
+                                const parsed = JSON.parse(selectedDocument.formData);
+                                return JSON.stringify(parsed, null, 2);
+                              } catch (e) {
+                                return selectedDocument.formData;
+                              }
+                            })()}
+                          </pre>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedDocument.pdfUrl && (
+                      <div className="detail-section">
+                        <h3>PDF Document</h3>
+                        <div className="pdf-actions">
+                          <a 
+                            href={selectedDocument.pdfUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="btn-download-pdf"
+                          >
+                            <i className="fas fa-file-pdf"></i>
+                            View PDF
+                          </a>
+                          <a 
+                            href={selectedDocument.pdfUrl} 
+                            download
+                            className="btn-download-pdf"
+                          >
+                            <i className="fas fa-download"></i>
+                            Download PDF
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button className="btn-cancel" onClick={closeViewModal}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default SavedDocumentsView;

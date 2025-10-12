@@ -1,0 +1,124 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==== MDRRMO USERS - SIMPLIFIED RULES ====
+    match /mdrrmo-users/{userId} {
+      // Allow users to read/write their own document
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Allow admins to read/write all user documents
+      allow read, write: if request.auth != null && 
+        request.auth.uid != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role == 'admin';
+      
+      // Allow dispatchers to read all users and update team assignments
+      allow read: if request.auth != null && 
+        request.auth.uid != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role == 'dispatcher';
+      
+      allow update: if request.auth != null && 
+        request.auth.uid != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role in ['admin', 'dispatcher'];
+    }
+
+    // ==== PUBLIC USERS ====
+    match /public-users/{publicId} {
+      allow get: if request.auth != null && request.auth.uid == publicId;
+      allow read, write: if request.auth != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ==== INCIDENTS ====
+    match /incidents/{reportId} {
+      // Any authenticated user can read
+      allow read: if request.auth != null;
+
+      // Create restricted to dispatcher/admin
+      allow write: if request.auth != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role in ['dispatcher','responder'];
+
+      // Update rules - SIMPLIFIED TO WORK
+      allow update: if request.auth != null &&
+        (
+          // dispatcher can update anything
+          (exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role in ['dispatcher', 'responder']) ||
+          // Assigned team members can update
+          (
+            resource.data.teamData != null &&
+            resource.data.teamData.membersUids != null &&
+            request.auth.uid in resource.data.teamData.membersUids
+          ) ||
+          // ANY authenticated user can update just status and updatedAt (for mobile app)
+          request.resource.data.keys().hasOnly(['status','updatedAt','responderPath','responderLocation'])
+        );
+    }
+
+    // ==== RESPONDER HEARTBEAT ====
+    match /responder_heartbeat/{userId} {
+      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role in ['dispatcher','admin','responder'];
+    }
+
+    // ==== ANNOUNCEMENTS ====
+    match /announcements/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ==== NOTIFICATIONS ====
+    match /notifications/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role in ['dispatcher','admin'];
+    }
+
+    // ==== REPORT LOGS ====
+    match /reportLogs/{reportId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role in ['dispatcher', 'admin'];
+      allow update, delete: if false;
+    }
+
+    // ==== REQUESTS ====
+    match /mdrrmo-requests/{requestId} {
+      allow read: if request.auth != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role in ['dispatcher','admin'];
+      allow write: if request.auth != null;
+    }
+
+    // ==== TEAMS ====
+    match /teams/{teamId} {
+      allow read: if request.auth != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role in ['dispatcher','responder','admin'];
+
+      allow write: if request.auth != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role in ['dispatcher','admin'];
+    }
+
+    // ==== ARCHIVES ====
+    match /archives/{id} {
+      allow read, write: if request.auth != null &&
+        exists(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/mdrrmo-users/$(request.auth.uid)).data.role == 'admin';
+    }
+  }
+}
+
+

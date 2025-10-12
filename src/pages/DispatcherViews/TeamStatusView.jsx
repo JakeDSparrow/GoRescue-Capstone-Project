@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, onSnapshot, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, updateDoc, serverTimestamp,setDoc } from "firebase/firestore";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { db, auth } from "../../firebase";
+import CancellationModal from "../../components/CancellationModal";
 
 // Helper to map Firestore keys to display names
 const roleDisplayNames = {
@@ -44,6 +45,7 @@ const TeamStatusView = () => {
   const [userId, setUserId] = useState(null);
   const [teamsData, setTeamsData] = useState(null);
   const [filter, setFilter] = useState("all"); // all, available, dispatched, responding
+  const [cancellationModal, setCancellationModal] = useState({ isOpen: false, incidentData: null });
 
   // Normalize various team key formats to match Firestore team doc ids
   const normalizeTeamId = (raw) => {
@@ -255,7 +257,9 @@ const TeamStatusView = () => {
 
         const baseTeams = Object.values(teamsData).map((team) => ({
           ...team,
-          missions: (missionsPerTeam[team.id] || []).filter((m) => m.status === "pending" || m.status === "in-progress"),
+          missions: (missionsPerTeam[team.id] || []).filter((m) => 
+            m.status === "pending" || m.status === "in-progress"
+          ),
         }));
 
         // Create placeholder teams for any unknown team ids that received missions/logs
@@ -271,7 +275,9 @@ const TeamStatusView = () => {
             id,
             name: displayName,
             members: {},
-            missions: (missionsPerTeam[id] || []).filter((m) => m.status === "pending" || m.status === "in-progress"),
+            missions: (missionsPerTeam[id] || []).filter((m) => 
+              m.status === "pending" || m.status === "in-progress"
+            ),
             reports: [],
           };
         });
@@ -285,27 +291,16 @@ const TeamStatusView = () => {
     return () => unsubscribe();
   }, [teamsData]);
 
-  const recallIncident = async (incidentId) => {
-    try {
-      const confirmed = window.confirm(
-        "Recall this mission? This will cancel it for the team."
-      );
-      if (!confirmed) return;
+  const recallIncident = (incidentId, incidentData) => {
+    setCancellationModal({
+      isOpen: true,
+      incidentData: { ...incidentData, id: incidentId }
+    });
+  };
 
-      const incidentRef = doc(db, "incidents", incidentId);
-      await updateDoc(incidentRef, {
-        status: "cancelled",
-        subStatus: "Cancelled by dispatcher",
-        responderId: null,           // ensure reassignment elsewhere doesn’t keep it active on mobile
-        cancelledAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        cancelledBy: auth.currentUser?.uid || "dispatcher",
-      });
-    } catch (err) {
-      console.error("Failed to recall mission:", err);
-      alert("Failed to recall mission. Please try again.");
-    }
-};
+  const handleCancellationSuccess = () => {
+    alert("Mission cancelled successfully. Team has been notified.");
+  };
 
   const toggleTeamExpansion = (teamId) => {
     setExpandedTeams((prevExpanded) => {
@@ -326,12 +321,18 @@ const TeamStatusView = () => {
       </span>
     ) : null;
 
-  const getStatusBadge = (status) =>
-    status ? (
-      <span className={`status-badge status-${status.replace("-", "")}`}>
-        {status.replace("-", " ").toUpperCase()}
+  const getStatusBadge = (status) => {
+    if (!status) return null;
+    
+    const statusClass = status === "cancelled" ? "status-cancelled" : `status-${status.replace("-", "")}`;
+    const displayText = status === "cancelled" ? "CANCELLED" : status.replace("-", " ").toUpperCase();
+    
+    return (
+      <span className={`status-badge ${statusClass}`}>
+        {displayText}
       </span>
-    ) : null;
+    );
+  };
 
   const formatTime = (timestamp) =>
     timestamp
@@ -384,7 +385,7 @@ const TeamStatusView = () => {
     ).length,
     totalMissions: teamStatuses.reduce(
       (total, team) =>
-        total + team.missions.filter((m) => m.status !== "completed").length,
+        total + team.missions.filter((m) => m.status !== "completed" && m.status !== "cancelled").length,
       0
     ),
     completedToday: teamStatuses.reduce(
@@ -393,6 +394,17 @@ const TeamStatusView = () => {
         team.missions.filter(
           (m) =>
             m.status === "completed" &&
+            m.timestamp &&
+            m.timestamp.toDateString() === new Date().toDateString()
+        ).length,
+      0
+    ),
+    cancelledToday: teamStatuses.reduce(
+      (total, team) =>
+        total +
+        team.missions.filter(
+          (m) =>
+            m.status === "cancelled" &&
             m.timestamp &&
             m.timestamp.toDateString() === new Date().toDateString()
         ).length,
@@ -452,8 +464,17 @@ const TeamStatusView = () => {
                   </div>
                 </div>
               </div>
-
-              
+              <div className="stat-card">
+                <div className="stat-card-content">
+                  <div className="stat-icon cancelled">
+                    <i className="fas fa-times-circle"></i>
+                  </div>
+                  <div className="stat-content">
+                    <div className="stat-number">{stats.cancelledToday}</div>
+                    <div className="stat-label">Cancelled Today</div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Filter Buttons */}
@@ -527,7 +548,6 @@ const TeamStatusView = () => {
                             {missions.filter((m) => m.status === "pending").length} Pending
                           </span>
                         )}
-                        
                       </div>
                     </div>
 
@@ -614,8 +634,8 @@ const TeamStatusView = () => {
                                 <div className="mission-footer">
                                   {getStatusBadge(item.status)}
                                   <div className="mission-actions">
-                                    <button className="recall-button" onClick={() => recallIncident(item.id)}>
-                                      Recall
+                                    <button className="recall-button" onClick={() => recallIncident(item.id, item)}>
+                                      Cancel Mission
                                     </button>
                                   </div>
                                 </div>
@@ -648,6 +668,14 @@ const TeamStatusView = () => {
           </>
         )}
       </div>
+
+      {/* Cancellation Modal */}
+      <CancellationModal
+        isOpen={cancellationModal.isOpen}
+        onClose={() => setCancellationModal({ isOpen: false, incidentData: null })}
+        incidentData={cancellationModal.incidentData}
+        onSuccess={handleCancellationSuccess}
+      />
     </div>
   );
 };

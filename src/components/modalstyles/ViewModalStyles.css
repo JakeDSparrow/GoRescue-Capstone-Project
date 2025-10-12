@@ -2,6 +2,33 @@
 /* View Report Modal Styles - Separate Classes */
 /* ===================== */
 
+/* Cancellation Reason Styles */
+.cancellation-reason {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+}
+
+.cancellation-reason .view-detail-label {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.cancellation-reason-text {
+  color: #dc2626;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cancellation-reason-text i {
+  color: #dc2626;
+  font-size: 14px;
+}
+
 /* Core Modal Structure */
 .view-modal-overlay {
   position: fixed;

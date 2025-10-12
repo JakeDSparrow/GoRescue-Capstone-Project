@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
-import { doc, setDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, setDoc, collection, getDocs, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from "firebase/functions";
 import AddUserModal from '../../components/AddUserModal';
 
@@ -11,16 +11,12 @@ const UsersView = () => {
     const [showAddUserModal, setShowAddUserModal] = useState(false);
 
     useEffect(() => {
-        const fetchUsers = async () => {
-            try {
-                const querySnapshot = await getDocs(collection(db, "mdrrmo-users"));
-                const fetchedUsers = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-                setUsers(fetchedUsers);
-            } catch (error) {
-                console.error("Error fetching users from Firestore:", error);
-            }
-        };
-        fetchUsers();
+        // Switch to realtime listener so the UI updates after add/edit without manual refetch
+        const unsub = onSnapshot(collection(db, 'mdrrmo-users'), (snap) => {
+            const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            setUsers(fetched);
+        }, (err) => console.error('Error listening to users:', err));
+        return () => unsub();
     }, []);
 
     const handleAddUser = async (newUserData) => {
@@ -28,17 +24,33 @@ const UsersView = () => {
         const addUserFunction = httpsCallable(functions, 'addUser');
         try {
             await addUserFunction(newUserData);
-            
-            // Refetch users to get the latest list including the new one
-            const querySnapshot = await getDocs(collection(db, "mdrrmo-users"));
-            const updatedUsers = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-            setUsers(updatedUsers);
-
             alert("User successfully added!");
             setShowAddUserModal(false);
         } catch (error) {
-            console.error("Error adding user via cloud function:", error);
-            alert(`Failed to add user: ${error.message}`);
+            console.warn("Cloud function addUser failed, falling back to direct Firestore write:", error?.message);
+            try {
+                const sanitized = {
+                    fullName: (newUserData.fullName || '').trim(),
+                    email: (newUserData.email || '').trim().toLowerCase(),
+                    phone: (newUserData.phone || '').trim(),
+                    role: newUserData.role === 'dispatcher' ? 'dispatcher' : 'responder',
+                    status: newUserData.status || 'active',
+                    birthdate: newUserData.birthdate || '',
+                    address: newUserData.address || '',
+                    gender: newUserData.gender || '',
+                    createdAt: serverTimestamp(),
+                };
+                if (!sanitized.fullName || !sanitized.email) {
+                    alert('Full name and email are required.');
+                    return;
+                }
+                await addDoc(collection(db, 'mdrrmo-users'), sanitized);
+                alert('User added directly to Firestore.');
+                setShowAddUserModal(false);
+            } catch (fallbackErr) {
+                console.error('Direct Firestore add failed:', fallbackErr);
+                alert(`Failed to add user: ${fallbackErr.message}`);
+            }
         }
     };
 

@@ -5,6 +5,7 @@ import alertSound from '../assets/alertSound.mp3';
 import LiveMapView from './DispatcherViews/LiveMapView';
 import NotificationsView from './DispatcherViews/NotificationsView';
 import ReportLogsView from './DispatcherViews/ReportLogsView';
+import SavedDocumentsView from './DispatcherViews/SavedDocumentsView';
 import TeamOrganizerView from './DispatcherViews/TeamOrganizerView';
 import IncidentHistoryView from './DispatcherViews/IncidentHistoryView';
 import TeamStatusView from './DispatcherViews/TeamStatusView';
@@ -643,7 +644,7 @@ useEffect(() => {
   // Handle URL hash for direct view access
   useEffect(() => {
     const hash = window.location.hash.slice(1);
-    if (hash && ['map-view', 'notifications-view', 'report-logs-view', 'team-organizer-view', 'incident-history-view', 'team-status-view'].includes(hash)) {
+    if (hash && ['map-view', 'notifications-view', 'report-logs-view', 'saved-documents-view', 'team-organizer-view', 'incident-history-view', 'team-status-view'].includes(hash)) {
       setActiveView(hash);
     }
   }, []);
@@ -657,6 +658,7 @@ useEffect(() => {
     { id: 'map-view', icon: 'fa-map', label: 'Live Map' },
     { id: 'notifications-view', icon: 'fa-bell', label: 'Notifications' },
     { id: 'report-logs-view', icon: 'fa-file-alt', label: 'Report Logs' },
+    { id: 'saved-documents-view', icon: 'fa-file-medical', label: 'Saved Documents' },
     { id: 'team-organizer-view', icon: 'fa-users', label: 'Team Organizer' },
     { id: 'incident-history-view', icon: 'fa-history', label: 'Incident History' },
     { id: 'team-status-view', icon: 'fa-chart-bar', label: 'Team Status' }
@@ -677,6 +679,7 @@ useEffect(() => {
       clearAll={clearAllNotifications}
     />, 
     'report-logs-view': <ReportLogsView reportLogs={reportLogs} setReportLogs={setReportLogs} formatDateTime={formatDateTime} />,
+    'saved-documents-view': <SavedDocumentsView />,
     'team-organizer-view': <TeamOrganizerView responders={currentTeam} />,
     'incident-history-view': <IncidentHistoryView />,
     'team-status-view': <TeamStatusView />

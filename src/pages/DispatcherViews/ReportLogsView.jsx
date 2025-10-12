@@ -83,16 +83,30 @@ export default function ReportLogsView({ onUpdate }) {
     const unsubscribe = onSnapshot(
       query(collection(db, "incidents")),
       (snapshot) => {
+        console.log('ReportLogsView: Firestore snapshot received, changes:', snapshot.docChanges().length);
         const incidents = [];
         snapshot.forEach((doc) => {
           const data = doc.data();
-          incidents.push({
+          const incident = {
             id: doc.id,
             ...data,
             timestamp: data.timestamp?.toDate() || new Date(),
             acknowledgedAt: data.acknowledgedAt?.toDate() || null,
             completedAt: data.completedAt?.toDate() || null,
-          });
+          };
+          
+          // Debug cancelled incidents
+          if (data.status === 'cancelled' || data.status === 'Cancelled') {
+            console.log('ReportLogsView: Found cancelled incident:', {
+              id: doc.id,
+              status: data.status,
+              cancellationReason: data.cancellationReason,
+              cancelledAt: data.cancelledAt,
+              cancelledBy: data.cancelledBy
+            });
+          }
+          
+          incidents.push(incident);
         });
         setReportLogs(incidents);
         setLoading(false);
@@ -113,8 +127,21 @@ const activeReports = React.useMemo(() => {
       if (!log) return false;
       // Normalize status to handle case/hyphen variations
       const status = String(log.status || '').trim().toLowerCase().replace(/\s+/g, '-');
-      const activeStatuses = ['pending', 'acknowledged', 'in-progress', 'partially-complete', 'completed'];
-      return !log.status || activeStatuses.includes(status);
+      const activeStatuses = ['pending', 'acknowledged', 'in-progress', 'partially-complete', 'completed', 'cancelled'];
+      const isIncluded = !log.status || activeStatuses.includes(status);
+      
+      // Debug cancelled reports
+      if (log.status === 'cancelled' || log.status === 'Cancelled') {
+        console.log('Cancelled report filtering:', {
+          id: log.id,
+          originalStatus: log.status,
+          normalizedStatus: status,
+          isIncluded: isIncluded,
+          hasCancellationReason: !!log.cancellationReason
+        });
+      }
+      
+      return isIncluded;
     })
     .sort((a, b) => {
       try {
@@ -146,6 +173,22 @@ const activeReports = React.useMemo(() => {
       console.log('Total logs:', reportLogs.length);
       console.log('Active reports after filtering:', activeReports.length);
       console.log('Raw reportLogs data:', reportLogs);
+      
+      // Check for cancelled reports specifically
+      const cancelledReports = reportLogs.filter(log => 
+        log.status === 'cancelled' || log.status === 'Cancelled'
+      );
+      console.log('Cancelled reports found:', cancelledReports.length);
+      cancelledReports.forEach((log, index) => {
+        console.log(`Cancelled Report ${index}:`, {
+          id: log.id || log.reportId,
+          status: log.status,
+          cancellationReason: log.cancellationReason,
+          cancelledAt: log.cancelledAt,
+          cancelledBy: log.cancelledBy
+        });
+      });
+      
       reportLogs.forEach((log, index) => {
         console.log(`Report ${index}:`, {
           id: log.id || log.reportId,
@@ -288,7 +331,9 @@ const activeReports = React.useMemo(() => {
                           'Acknowledged': 'acknowledged',
                           'In Progress': 'in-progress', 
                           'Partially Complete': 'partially-complete',
-                          'Completed': 'completed'
+                          'Completed': 'completed',
+                          'Cancelled': 'cancelled',
+                          'cancelled': 'cancelled'
                         };
                         statusKey = statusMapping[log.status] || (log.status || '').toLowerCase().replace(/\s+/g, '-').trim();
                       } else {
@@ -332,9 +377,10 @@ const activeReports = React.useMemo(() => {
                       <i className="fas fa-eye" /> View
                     </button>
                     {(() => {
-                      // Determine if report is completed
+                      // Determine if report is completed or cancelled (both should be read-only)
                       const isCompleted = log.status === 'Completed' || log.completedAt;
-                      return !isCompleted && (
+                      const isCancelled = log.status === 'Cancelled' || log.status === 'cancelled';
+                      return !isCompleted && !isCancelled && (
                         <button className="btn-action btn-edit" onClick={() => handleEdit(log)}>
                           <i className="fas fa-edit" /> Edit
                         </button>
