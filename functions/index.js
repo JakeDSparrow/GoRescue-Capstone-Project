@@ -24,7 +24,7 @@ exports.addUser = onCall({cors: true}, async (request) => {
     }
 
     const userData = request.data;
-    const {email, fullName, role, phone, birthdate, age, address, gender, fcmToken} = userData;
+    const {email, fullName, role, phone, birthdate, age, address, gender, fcmToken, password} = userData;
 
     if (!email || !fullName || !role) {
         throw new functions.https.HttpsError(
@@ -34,12 +34,15 @@ exports.addUser = onCall({cors: true}, async (request) => {
     }
 
     try {
-        // Generate a strong temporary password (not shared with user)
-        const tempPassword = Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10).toUpperCase() + Math.floor(Math.random() * 1000);
+        // If no password provided, generate a strong temporary password
+        const finalPassword = (typeof password === 'string' && password.length >= 6)
+            ? password
+            : Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10).toUpperCase() + Math.floor(Math.random() * 1000);
+
         // Create Firebase Auth user
         const userRecord = await admin.auth().createUser({
             email: email,
-            password: tempPassword,
+            password: finalPassword,
             emailVerified: false,
             disabled: false,
         });
@@ -62,30 +65,36 @@ exports.addUser = onCall({cors: true}, async (request) => {
             fcmToken: '', // Empty field for future FCM implementation
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            needsPasswordSetup: true,
+            needsPasswordSetup: !(typeof password === 'string' && password.length >= 6),
         };
 
         await db.collection('mdrrmo-users').doc(userRecord.uid).set(userDoc);
         logger.info(`Successfully created user document for: ${userRecord.uid}`);
 
-        // Generate password reset link and send email
-        try {
-            const actionCodeSettings = {
-                url: 'http://localhost:3000/login', // Use localhost for development
-                handleCodeInApp: false,
-            };
-            const resetLink = await admin.auth().generatePasswordResetLink(email, actionCodeSettings);
-            await sendPasswordSetupEmail(email, fullName, resetLink);
-            logger.info(`Password reset link sent to: ${email}`);
-        } catch (emailError) {
-            logger.error('Failed to send password reset link:', emailError);
-            // Don't fail the user creation if email fails
+        // Only send reset link if password was NOT supplied
+        if (!(typeof password === 'string' && password.length >= 6)) {
+            try {
+                const actionCodeSettings = {
+                    url: 'http://localhost:3000/login', // Use localhost for development
+                    handleCodeInApp: false,
+                };
+                const resetLink = await admin.auth().generatePasswordResetLink(email, actionCodeSettings);
+                await sendPasswordSetupEmail(email, fullName, resetLink);
+                logger.info(`Password reset link sent to: ${email}`);
+            } catch (emailError) {
+                logger.error('Failed to send password reset link:', emailError);
+                // Don't fail the user creation if email fails
+            }
+        } else {
+            logger.info('Password provided by admin; skipping reset email.');
         }
 
         return {
             success: true,
             uid: userRecord.uid,
-            message: 'User created successfully and password reset link sent.',
+            message: (typeof password === 'string' && password.length >= 6)
+                ? 'User created with provided password.'
+                : 'User created and password reset link sent.',
         };
     } catch (error) {
         logger.error('Error creating user:', error);

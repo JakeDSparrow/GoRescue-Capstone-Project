@@ -44,8 +44,9 @@ const UsersView = () => {
                     alert('Full name and email are required.');
                     return;
                 }
+                // Note: direct Firestore write cannot create Auth user; warn admin
                 await addDoc(collection(db, 'mdrrmo-users'), sanitized);
-                alert('User added directly to Firestore.');
+                alert('User added to Firestore only. Auth creation failed; retry later.');
                 setShowAddUserModal(false);
             } catch (fallbackErr) {
                 console.error('Direct Firestore add failed:', fallbackErr);
@@ -146,12 +147,7 @@ const UsersView = () => {
                                     <p><strong>Gender:</strong> {user.gender}</p>
                                 </div>
                                 <div className="user-actions">
-                                    <button
-                                        className="btn btn-primary"
-                                        onClick={() => handleEdit(user)}
-                                    >
-                                        <i className="fas fa-edit"></i> Edit
-                                    </button>
+                                    {/* Edit disabled by requirement: admin cannot edit users here */}
                                 </div>
                             </>
                         )}

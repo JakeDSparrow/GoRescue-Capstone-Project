@@ -12,6 +12,7 @@ export default function AddUserModal({ onClose, onSubmit }) {
         gender: 'male',    // Corrected to lowercase to match <option> values
         role: 'responder',
         status: 'active',
+        password: '',
     });
 
     /**
@@ -63,6 +64,12 @@ export default function AddUserModal({ onClose, onSubmit }) {
         // Basic validation check
         if (!formData.fullName || !formData.email || !formData.birthdate || !formData.address) {
             alert("Please fill out all required fields.");
+            return;
+        }
+
+        // Optional: if password provided, ensure a minimal length
+        if (formData.password && formData.password.length < 6) {
+            alert('Password must be at least 6 characters.');
             return;
         }
 
@@ -131,6 +138,10 @@ export default function AddUserModal({ onClose, onSubmit }) {
                         </select>
                     </div>
 
+                    <div className="form-group">
+                        <label>Password (optional)</label>
+                        <input name="password" type="password" value={formData.password} onChange={handleChange} placeholder="Set initial password or leave blank" />
+                    </div>
                     
                     <div className="info-box">
                         📧 The user will receive instructions to complete their registration using the provided email address.

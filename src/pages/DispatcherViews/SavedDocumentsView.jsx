@@ -9,12 +9,13 @@ const SavedDocumentsView = () => {
   const [error, setError] = useState(null);
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all'); // all | submitted | draft
 
   useEffect(() => {
     console.log('SavedDocumentsView: Setting up Firestore listener for saved_documents collection');
     
     const unsubscribe = onSnapshot(
-      query(collection(db, "saved_documents"), orderBy("createdAt", "desc")),
+      query(collection(db, 'saved_documents'), orderBy('createdAtMs', 'desc')),
       (snapshot) => {
         console.log('SavedDocumentsView: Received snapshot with', snapshot.docs.length, 'documents');
         const docs = [];
@@ -80,6 +81,45 @@ const SavedDocumentsView = () => {
     );
   };
 
+  const parseFormDataSafe = (formData) => {
+    try {
+      if (!formData) return {};
+      return typeof formData === 'string' ? JSON.parse(formData) : formData;
+    } catch (e) {
+      return { _raw: formData };
+    }
+  };
+
+  const isRefusalDocument = (doc) => {
+    const parsed = parseFormDataSafe(doc.formData);
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.isRefusalForm === true) return true;
+      // also detect if refusalData has meaningful content
+      if (parsed.refusalData && JSON.stringify(parsed.refusalData) !== '{}' && JSON.stringify(parsed.refusalData).length > 2) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const handleDownloadJSON = (doc) => {
+    try {
+      const parsed = parseFormDataSafe(doc.formData);
+      const blob = new Blob([JSON.stringify(parsed, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${doc.documentType || 'document'}_${doc.missionId || 'mission'}_${doc.reportId || 'report'}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Failed to download JSON', e);
+      alert('Failed to download JSON');
+    }
+  };
+
   const getDocumentTypeIcon = (type) => {
     switch (type) {
       case 'PCR_Form_Activity':
@@ -137,6 +177,30 @@ const SavedDocumentsView = () => {
           <p>View and manage documents submitted by responders</p>
         </div>
 
+        <div className="dashboard-actions" style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <button
+            className={`btn-view ${statusFilter === 'all' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('all')}
+          >
+            <i className="fas fa-list"></i>
+            All
+          </button>
+          <button
+            className={`btn-view ${statusFilter === 'submitted' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('submitted')}
+          >
+            <i className="fas fa-check"></i>
+            Submitted
+          </button>
+          <button
+            className={`btn-view ${statusFilter === 'draft' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('draft')}
+          >
+            <i className="fas fa-pencil-alt"></i>
+            Drafts
+          </button>
+        </div>
+
         {documents.length === 0 ? (
           <div className="no-documents">
             <i className="fas fa-file-medical"></i>
@@ -149,7 +213,9 @@ const SavedDocumentsView = () => {
           </div>
         ) : (
           <div className="documents-grid">
-            {documents.map((doc) => (
+            {documents
+              .filter((d) => statusFilter === 'all' || d.status === statusFilter)
+              .map((doc) => (
               <div key={doc.id} className="document-card">
                 <div className="document-header">
                   <div className="document-type">
@@ -168,6 +234,12 @@ const SavedDocumentsView = () => {
                     <strong>Report ID:</strong>
                     <span>{doc.reportId}</span>
                   </div>
+                  {isRefusalDocument(doc) && (
+                    <div className="info-row">
+                      <strong>Type:</strong>
+                      <span style={{ color: '#dc3545', fontWeight: 600 }}>Patient Refusal</span>
+                    </div>
+                  )}
                   <div className="info-row">
                     <strong>Team:</strong>
                     <span>{doc.teamName || 'N/A'}</span>
@@ -201,6 +273,31 @@ const SavedDocumentsView = () => {
                   >
                     <i className="fas fa-eye"></i>
                     View Details
+                  </button>
+                  {doc.pdfUrl ? (
+                    <a 
+                      href={doc.pdfUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="btn-download-pdf"
+                    >
+                      <i className="fas fa-file-pdf"></i>
+                      View PDF
+                    </a>
+                  ) : (
+                    doc.status === 'submitted' && (
+                      <button className="btn-download-pdf" disabled>
+                        <i className="fas fa-clock"></i>
+                        PDF processing...
+                      </button>
+                    )
+                  )}
+                  <button 
+                    className="btn-view"
+                    onClick={() => handleDownloadJSON(doc)}
+                  >
+                    <i className="fas fa-download"></i>
+                    Download JSON
                   </button>
                 </div>
               </div>

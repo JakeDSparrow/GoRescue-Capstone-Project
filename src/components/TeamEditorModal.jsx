@@ -181,19 +181,7 @@ export default function TeamEditorModal({
         updatedAt: Timestamp.fromDate(phTime)
       });
 
-      const responderUpdates = Object.values(formState)
-        .filter(r => r?.uid)
-        .map(r => {
-          const userRef = doc(db, "mdrrmo-users", r.uid);
-          return updateDoc(userRef, {
-            teamId: teamId, // ✅ use full teamId ("alpha-dayShift")
-            updatedAt: Timestamp.fromDate(phTime)
-          });
-        });
-
-      await Promise.all(responderUpdates);
-
-      console.log("✅ Team & responders saved with PH shift times");
+      console.log("✅ Team saved with PH shift times");
     } catch (error) {
       console.error("❌ Error saving team:", error);
     }

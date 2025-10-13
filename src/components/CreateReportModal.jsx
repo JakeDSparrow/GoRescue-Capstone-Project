@@ -11,7 +11,6 @@ import {
   updateDoc,
   getDoc,
 } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
 import './modalstyles/CreateReportStyles.css';
 import {
   emergencySeverityMap,
@@ -68,9 +67,6 @@ const parseDate = (dateValue) => {
     return null;
   }
 };
-
-const functions = getFunctions();
-const sendNotification = httpsCallable(functions, 'sendIncidentNotification');
 
 // Helper function to check if a responder is within their shift
 const isWithinShift = (responder) => {
@@ -605,7 +601,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
     // Process multiple teams
     const allTeamData = [];
     const allMembers = [];
-    
+
     for (const teamId of form.respondingTeams) {
       if (teamId === 'all-responders') {
         allTeamData.push({
@@ -625,7 +621,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
           .map(role => teamDetails?.[role])
           .filter(member => member && member.uid && isResponderAvailable(member))
           .map(member => ({ uid: member.uid, fullName: member.fullName }));
-        
+
         allTeamData.push({
           teamName: `${teamKey?.toUpperCase()} - ${shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}`,
           members: teamMembers,
@@ -645,21 +641,23 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
       };
     });
 
-    // Add new validation here
     if (allTeamData.length === 0) {
       setStatusMessage('❌ The selected teams have no available responders to notify. Please select different teams.');
       setLoading(false);
       return;
     }
-    
+
+    // New: drive in-app notifications via assignedResponderUids
+    const assignedResponderUids = allMembers.map(m => m.uid);
+
     const incidentData = {
       incidentCode: form.incidentCode,
       emergencyType: categoryCodeToType(form.emergencyCategory),
       emergencySeverity: severityCodeToKey(form.severityCode),
       reporter: form.reporterName,
       contact: form.contact,
-      location: { 
-        lat: calculatedCoords.lat, 
+      location: {
+        lat: calculatedCoords.lat,
         lng: calculatedCoords.lng,
       },
       locationText: form.location,
@@ -669,12 +667,13 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
       notes: form.notes || '',
       status: reportToEdit?.status || 'Pending',
       timestamp: serverTimestamp(),
-      respondingTeams: form.respondingTeams, // Store array of team IDs
-      teamData: allTeamData, // Store array of team data
-      teamAcknowledgments: teamAcknowledgments, // Store per-team acknowledgment tracking
-      createdBy: currentUser?.uid || null, // Add createdBy field
-      createdByName: currentUserFullName || 'Unknown User', // Add created by name from mdrrmo-users document
+      respondingTeams: form.respondingTeams,     // array of team IDs
+      teamData: allTeamData,                     // array of team data
+      teamAcknowledgments: teamAcknowledgments,  // per-team ack state
+      createdBy: currentUser?.uid || null,
+      createdByName: currentUserFullName || 'Unknown User',
       createdAt: new Date().toISOString(),
+      assignedResponderUids,                     // <-- key for mobile in-app notifications
     };
 
     let savedReport;
@@ -686,7 +685,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
       };
       delete updateData.timestamp;
       delete updateData.createdAt;
-      
+
       await updateDoc(docRef, updateData);
       savedReport = { ...incidentData, id: reportToEdit.id, reportId: reportToEdit.reportId };
       setStatusMessage('✅ Report updated successfully!');
@@ -697,59 +696,13 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
       const docRef = await addDoc(incidentsRef, { ...incidentData, reportId });
       savedReport = { ...incidentData, id: docRef.id, reportId };
       setStatusMessage('✅ Report created successfully!');
-
-      // SEND PUSH NOTIFICATIONS FOR NEW REPORTS ONLY - ONE PER TEAM
-      try {
-        setStatusMessage('📱 Sending notifications...');
-        
-        let totalSuccessCount = 0;
-        let totalFailureCount = 0;
-        
-        // Send separate notification for each team
-        for (const team of allTeamData) {
-          try {
-            const notificationPayload = {
-              incidentCode: form.incidentCode,
-              emergencyType: categoryCodeToType(form.emergencyCategory),
-              emergencySeverity: severityCodeToKey(form.severityCode),
-              location: form.location,
-              teamData: team.members, // Send only this team's members
-              teamName: team.teamName, // Include team name for identification
-            };
-
-            console.log(`Sending notification to ${team.teamName}:`, notificationPayload);
-
-            const result = await sendNotification(notificationPayload);
-            console.log(`Notification result for ${team.teamName}:`, result.data);
-            
-            if (result.data.success) {
-              totalSuccessCount += result.data.successCount || 0;
-            } else {
-              totalFailureCount += 1;
-            }
-          } catch (teamNotificationError) {
-            console.error(`Error sending notification to ${team.teamName}:`, teamNotificationError);
-            totalFailureCount += 1;
-          }
-        }
-        
-        if (totalSuccessCount > 0) {
-          setStatusMessage(`✅ Report created and notifications sent to ${totalSuccessCount} devices across ${allTeamData.length} team(s)!`);
-        } else {
-          setStatusMessage('✅ Report created but notifications failed to send.');
-        }
-      } catch (notificationError) {
-        console.error('Error sending push notifications:', notificationError);
-        setStatusMessage('✅ Report created but notifications failed to send.');
-      }
     }
 
     onReportCreated?.(savedReport);
     setTimeout(() => {
       onClose();
       setStatusMessage('');
-    }, 3000); // Increased timeout to see notification status
-    
+    }, 3000);
   } catch (err) {
     console.error('Error saving report:', err);
     setStatusMessage('❌ Error saving report. Please try again.');

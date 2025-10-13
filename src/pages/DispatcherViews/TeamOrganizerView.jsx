@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import TeamEditorModal from '../../components/TeamEditorModal';
-import { getFirestore, collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
 const roleLabels = {
@@ -251,11 +251,50 @@ export default function TeamOrganizerView() {
         status: updatedShift.status || teams[teamKey][shiftKey].status || 'active'
       };
       await setDoc(docRef, shiftToSave);
+
+      // After saving the team, sync mdrrmo-users.teamId assignments
+      const prevShift = teams[teamKey][shiftKey] || {};
+      const roleKeys = Object.keys({ teamLeader: true, emt1: true, emt2: true, ambulanceDriver: true });
+
+      const prevAssignedUids = new Set(
+        roleKeys
+          .map(rk => prevShift[rk]?.uid)
+          .filter(Boolean)
+      );
+      const newAssignedUids = new Set(
+        roleKeys
+          .map(rk => updatedShift[rk]?.uid)
+          .filter(Boolean)
+      );
+
+      const teamId = docId;
+      const updates = [];
+
+      // Users newly assigned → set teamId
+      newAssignedUids.forEach(uid => {
+        if (!prevAssignedUids.has(uid)) {
+          const userRef = doc(db, 'mdrrmo-users', uid);
+          updates.push(updateDoc(userRef, { teamId }));
+        }
+      });
+
+      // Users removed → clear teamId
+      prevAssignedUids.forEach(uid => {
+        if (!newAssignedUids.has(uid)) {
+          const userRef = doc(db, 'mdrrmo-users', uid);
+          updates.push(updateDoc(userRef, { teamId: null }));
+        }
+      });
+
+      if (updates.length) {
+        await Promise.all(updates);
+      }
+
       setTeams(prev => ({
         ...prev,
         [teamKey]: { ...prev[teamKey], [shiftKey]: shiftToSave },
       }));
-      console.log(`✅ Shift saved successfully: ${docId}`);
+      console.log(`✅ Shift saved and user teamId synced: ${docId}`);
     } catch (error) {
       console.error('❌ Failed to save shift:', error);
       alert(`Failed to save shift: ${error.message}`);
