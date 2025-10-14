@@ -32,6 +32,9 @@ const DashboardView = () => {
   const [monthlyData, setMonthlyData] = useState([]);
   const [weeklyTrendData, setWeeklyTrendData] = useState([]);
   const [recentActivities, setRecentActivities] = useState([]);
+  // Monthly inputs
+  const [monthlyYearFilter, setMonthlyYearFilter] = useState('all');
+  const [monthlyStatusFilter, setMonthlyStatusFilter] = useState('all'); // all|resolved|pending|dispatched|responding
 
   // Helpers
   const toDate = useCallback((value) => {
@@ -194,7 +197,7 @@ const DashboardView = () => {
     }));
     setIncidentData(incidentChartData);
 
-    // Monthly grouped with year
+    // Monthly grouped with year (unfiltered base)
     const monthlyStatsMap = incidents.reduce((acc, i) => {
       const d = toDate(i.timestamp || i.createdAt || i.reportedAt);
       if (!d) return acc;
@@ -407,23 +410,7 @@ const DashboardView = () => {
                   )}
                 </div>
 
-                <div className="chart-block">
-                  <h4>Monthly Reports</h4>
-                  {monthlyData.length === 0 ? (
-                    <p className="empty-state">No data</p>
-                  ) : (
-                    <ResponsiveContainer width="100%" height={250}>
-                      <BarChart data={monthlyData}>
-                        <XAxis dataKey="month" />
-                        <YAxis />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="resolved" fill="var(--success)" name="Resolved" />
-                        <Bar dataKey="pending" fill="var(--warning)" name="Pending" />
-                        <Bar dataKey="dispatched" fill="var(--info)" name="Dispatched" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
+                
               </div>
             ) : (
               <div className="chart-block">
@@ -466,10 +453,7 @@ const DashboardView = () => {
         <div className="calendar-range">
           <i className="fas fa-calendar-alt"></i> Week of {currentWeekStart.toLocaleDateString()} - {currentWeekEnd.toLocaleDateString()}
         </div>
-        <div className="calendar-actions">
-          <button onClick={handleAddAnnouncement} className="btn btn-outline"><i className="fas fa-bullhorn"></i> Announcement</button>
-          <button onClick={handleAddEvent} className="btn btn-primary"><i className="fas fa-plus"></i> Add Event</button>
-        </div>
+        <div className="calendar-actions"></div>
       </div>
 
       <div className="calendar-card">

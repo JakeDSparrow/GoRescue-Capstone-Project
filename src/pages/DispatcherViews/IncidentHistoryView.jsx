@@ -45,78 +45,7 @@ export default function IncidentHistoryView() {
     return () => unsubscribe();
   }, []);
 
-  // Helper function to check if incident has attachments
-  const hasAttachments = (incident) => {
-    // Check various possible attachment fields
-    const attachmentFields = [
-      incident.attachments,
-      incident.files,
-      incident.images,
-      incident.documents,
-      incident.media
-    ];
-    
-    return attachmentFields.some(field => {
-      if (Array.isArray(field)) {
-        return field.length > 0;
-      }
-      if (typeof field === 'object' && field !== null) {
-        return Object.keys(field).length > 0;
-      }
-      return false;
-    });
-  };
-
-  // Helper function to get attachment count
-  const getAttachmentCount = (incident) => {
-    let count = 0;
-    const attachmentFields = [
-      incident.attachments,
-      incident.files,
-      incident.images,
-      incident.documents,
-      incident.media
-    ];
-    
-    attachmentFields.forEach(field => {
-      if (Array.isArray(field)) {
-        count += field.length;
-      } else if (typeof field === 'object' && field !== null) {
-        count += Object.keys(field).length;
-      }
-    });
-    
-    return count;
-  };
-
-  // Helper function to get attachment types
-  const getAttachmentTypes = (incident) => {
-    const types = [];
-    if (incident.attachments?.length > 0) types.push('attachments');
-    if (incident.files?.length > 0) types.push('files');
-    if (incident.images?.length > 0) types.push('images');
-    if (incident.documents?.length > 0) types.push('documents');
-    if (incident.media?.length > 0) types.push('media');
-    return types;
-  };
-
-  // Handle attachment icon hover
-  const handleAttachmentHover = (event, incident) => {
-    const count = getAttachmentCount(incident);
-    const types = getAttachmentTypes(incident);
-    const rect = event.target.getBoundingClientRect();
-    
-    setAttachmentTooltip({
-      show: true,
-      content: `${count} attachment${count !== 1 ? 's' : ''} (${types.join(', ')})`,
-      x: rect.left + rect.width / 2,
-      y: rect.top - 10
-    });
-  };
-
-  const handleAttachmentLeave = () => {
-    setAttachmentTooltip({ show: false, content: '', x: 0, y: 0 });
-  };
+  // Attachments column removed per request
 
   // Normalize a single date source for filtering and charts
   const getPrimaryDate = (log) => {
@@ -544,7 +473,7 @@ export default function IncidentHistoryView() {
                 <div className="table-cell">Incident Code</div>
                 <div className="table-cell">Completion Time</div>
                 <div className="table-cell">Location</div>
-                <div className="table-cell">Attachments</div>
+                
               </div>
               
               {completedPageItems.map((operation) => (
@@ -572,90 +501,14 @@ export default function IncidentHistoryView() {
                         'Location not specified')}
                     </span>
                   </div>
-                  <div className="table-cell">
-                    <div className="attachment-indicator">
-                      {hasAttachments(operation) ? (
-                        <i 
-                          className="fas fa-paperclip attachment-icon has-attachments"
-                          onMouseEnter={(e) => handleAttachmentHover(e, operation)}
-                          onMouseLeave={handleAttachmentLeave}
-                          style={{
-                            color: '#2563eb',
-                            fontSize: '16px',
-                            cursor: 'pointer',
-                            transition: 'color 0.2s ease'
-                          }}
-                          title="Has attachments - hover for details"
-                        />
-                      ) : (
-                        <i 
-                          className="fas fa-paperclip attachment-icon no-attachments"
-                          style={{
-                            color: '#d1d5db',
-                            fontSize: '16px',
-                            cursor: 'default'
-                          }}
-                          title="No attachments"
-                        />
-                      )}
-                      {hasAttachments(operation) && (
-                        <span 
-                          className="attachment-count"
-                          style={{
-                            marginLeft: '4px',
-                            fontSize: '12px',
-                            color: '#6b7280',
-                            fontWeight: '500'
-                          }}
-                        >
-                          ({getAttachmentCount(operation)})
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                  
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Attachment Tooltip */}
-        {attachmentTooltip.show && (
-          <div 
-            className="attachment-tooltip"
-            style={{
-              position: 'fixed',
-              left: attachmentTooltip.x,
-              top: attachmentTooltip.y,
-              transform: 'translateX(-50%) translateY(-100%)',
-              backgroundColor: 'rgba(0, 0, 0, 0.9)',
-              color: 'white',
-              padding: '8px 12px',
-              borderRadius: '6px',
-              fontSize: '12px',
-              fontWeight: '500',
-              whiteSpace: 'nowrap',
-              zIndex: 1000,
-              pointerEvents: 'none',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
-            }}
-          >
-            {attachmentTooltip.content}
-            <div 
-              style={{
-                position: 'absolute',
-                top: '100%',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                width: 0,
-                height: 0,
-                borderLeft: '6px solid transparent',
-                borderRight: '6px solid transparent',
-                borderTop: '6px solid rgba(0, 0, 0, 0.9)'
-              }}
-            />
-          </div>
-        )}
+        
       </div>
       
     </div>

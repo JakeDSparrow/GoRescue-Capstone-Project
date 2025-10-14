@@ -458,7 +458,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         setAllResponders(
           respondersSnapshot.docs
             .map(doc => ({ uid: doc.id, ...doc.data() }))
-            .filter(isResponderAvailable), // Use the helper function
+            .filter(isResponderAvailable),
         );
       } catch (err) {
         console.error('Failed to fetch teams or responders:', err);
@@ -598,6 +598,9 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
   setStatusMessage('💾 Saving report...');
 
   try {
+    // Build a quick lookup for responder profiles
+    const responderByUid = Object.fromEntries(allResponders.map(r => [r.uid, r]));
+
     // Process multiple teams
     const allTeamData = [];
     const allMembers = [];
@@ -619,8 +622,14 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
         }
         const teamMembers = ROLE_KEYS
           .map(role => teamDetails?.[role])
-          .filter(member => member && member.uid && isResponderAvailable(member))
-          .map(member => ({ uid: member.uid, fullName: member.fullName }));
+          .filter(member => {
+            const profile = member?.uid ? responderByUid[member.uid] : null;
+            return profile && isResponderAvailable(profile);
+          })
+          .map(member => {
+            const profile = responderByUid[member.uid];
+            return { uid: member.uid, fullName: profile?.fullName || member.fullName || 'Unknown' };
+          });
 
         allTeamData.push({
           teamName: `${teamKey?.toUpperCase()} - ${shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}`,
@@ -648,7 +657,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
     }
 
     // New: drive in-app notifications via assignedResponderUids
-    const assignedResponderUids = allMembers.map(m => m.uid);
+    const assignedResponderUids = Array.from(new Set(allMembers.map(m => m.uid)));
 
     const incidentData = {
       incidentCode: form.incidentCode,
@@ -848,8 +857,10 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
                   disabled={isEditing || isCodeManuallyTyped || loading}
                 >
                   <option value="">Select Casualty...</option>
-                  {Object.entries(CASUALTY_CODES).map(([code, label]) => (
-                    <option key={code} value={code}>{label}</option>
+                  {Object.entries(CASUALTY_CODES)
+                    .filter(([code]) => code !== '0X')
+                    .map(([code, label]) => (
+                      <option key={code} value={code}>{code === '00' ? 'No Injuries/Casualties' : label}</option>
                   ))}
                 </select>
               </div>

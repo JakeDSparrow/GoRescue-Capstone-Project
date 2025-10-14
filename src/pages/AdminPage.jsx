@@ -17,6 +17,7 @@ const AdminDashboard = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeView, setActiveView] = useState('dashboard-view');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [now, setNow] = useState(new Date());
 
   const navigate = useNavigate();
 
@@ -56,6 +57,12 @@ const AdminDashboard = () => {
       navigate("/");
     }
   }, [navigate]);
+
+  // live clock
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const handleLogoutClick = () => {
     setShowLogoutConfirm(true);
@@ -107,6 +114,9 @@ const AdminDashboard = () => {
           >
             <i className="fas fa-bars"></i>
           </button>
+          <div className="time-date-display">
+            <span className="time-date-text">{now.toLocaleString()}</span>
+          </div>
           <div className="user-menu">
             <div className="user-avatar">AD</div>
             <button 

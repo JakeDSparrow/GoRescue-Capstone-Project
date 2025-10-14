@@ -267,164 +267,32 @@ const SavedDocumentsView = () => {
                 </div>
 
                 <div className="document-actions">
-                  <button 
-                    className="btn-view"
-                    onClick={() => handleViewDocument(doc)}
-                  >
-                    <i className="fas fa-eye"></i>
-                    View Details
-                  </button>
                   {doc.pdfUrl ? (
                     <a 
                       href={doc.pdfUrl} 
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="btn-download-pdf"
+                      onClick={(e) => e.stopPropagation()}
                     >
                       <i className="fas fa-file-pdf"></i>
                       View PDF
                     </a>
                   ) : (
                     doc.status === 'submitted' && (
-                      <button className="btn-download-pdf" disabled>
+                      <button className="btn-download-pdf" disabled onClick={(e) => e.stopPropagation()}>
                         <i className="fas fa-clock"></i>
                         PDF processing...
                       </button>
                     )
                   )}
-                  <button 
-                    className="btn-view"
-                    onClick={() => handleDownloadJSON(doc)}
-                  >
-                    <i className="fas fa-download"></i>
-                    Download JSON
-                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* View Modal */}
-        {viewModalOpen && selectedDocument && (
-          <div className="modal-overlay">
-            <div className="modal view-modal">
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h2>Document Details</h2>
-                  <button className="close-btn" onClick={closeViewModal}>&times;</button>
-                </div>
-                <div className="modal-body">
-                  <div className="document-details">
-                    <div className="detail-section">
-                      <h3>Document Information</h3>
-                      <div className="detail-grid">
-                        <div className="detail-item">
-                          <strong>Document ID:</strong>
-                          <span>{selectedDocument.documentId}</span>
-                        </div>
-                        <div className="detail-item">
-                          <strong>Document Type:</strong>
-                          <span>{selectedDocument.documentType}</span>
-                        </div>
-                        <div className="detail-item">
-                          <strong>Status:</strong>
-                          {getStatusBadge(selectedDocument.status)}
-                        </div>
-                        <div className="detail-item">
-                          <strong>Mission ID:</strong>
-                          <span>{selectedDocument.missionId}</span>
-                        </div>
-                        <div className="detail-item">
-                          <strong>Report ID:</strong>
-                          <span>{selectedDocument.reportId}</span>
-                        </div>
-                        <div className="detail-item">
-                          <strong>Team Name:</strong>
-                          <span>{selectedDocument.teamName || 'N/A'}</span>
-                        </div>
-                        <div className="detail-item">
-                          <strong>Created By:</strong>
-                          <span>{selectedDocument.createdBy}</span>
-                        </div>
-                        <div className="detail-item">
-                          <strong>Created At:</strong>
-                          <span>{formatDateTime(selectedDocument.createdAt)}</span>
-                        </div>
-                        {selectedDocument.incidentLocation && (
-                          <div className="detail-item">
-                            <strong>Incident Location:</strong>
-                            <span>{selectedDocument.incidentLocation}</span>
-                          </div>
-                        )}
-                        {selectedDocument.reporterName && (
-                          <div className="detail-item">
-                            <strong>Reporter Name:</strong>
-                            <span>{selectedDocument.reporterName}</span>
-                          </div>
-                        )}
-                        {selectedDocument.emergencyType && (
-                          <div className="detail-item">
-                            <strong>Emergency Type:</strong>
-                            <span>{selectedDocument.emergencyType}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {selectedDocument.formData && (
-                      <div className="detail-section">
-                        <h3>Form Data</h3>
-                        <div className="form-data-container">
-                          <pre className="form-data-json">
-                            {(() => {
-                              try {
-                                const parsed = JSON.parse(selectedDocument.formData);
-                                return JSON.stringify(parsed, null, 2);
-                              } catch (e) {
-                                return selectedDocument.formData;
-                              }
-                            })()}
-                          </pre>
-                        </div>
-                      </div>
-                    )}
-
-                    {selectedDocument.pdfUrl && (
-                      <div className="detail-section">
-                        <h3>PDF Document</h3>
-                        <div className="pdf-actions">
-                          <a 
-                            href={selectedDocument.pdfUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="btn-download-pdf"
-                          >
-                            <i className="fas fa-file-pdf"></i>
-                            View PDF
-                          </a>
-                          <a 
-                            href={selectedDocument.pdfUrl} 
-                            download
-                            className="btn-download-pdf"
-                          >
-                            <i className="fas fa-download"></i>
-                            Download PDF
-                          </a>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button className="btn-cancel" onClick={closeViewModal}>
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        
       </div>
     </div>
   );

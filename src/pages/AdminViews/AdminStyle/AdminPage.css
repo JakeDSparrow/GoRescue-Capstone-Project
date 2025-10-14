@@ -526,6 +526,73 @@ body {
   color: white;
 }
 
+/* Danger button */
+.btn-danger {
+  background: #ef4444;
+  color: #fff;
+}
+.btn-danger:hover {
+  background: #dc2626;
+  color: #fff;
+}
+
+/* Admin confirm modal (archives delete) */
+.admin-confirm-overlay {
+  position: fixed;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.admin-confirm-modal {
+  background: #fff;
+  width: 90%;
+  max-width: 480px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  overflow: hidden;
+}
+
+.admin-confirm-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #eee;
+}
+
+.admin-confirm-modal .modal-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--dark);
+}
+
+.admin-confirm-modal .close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--gray);
+}
+
+.admin-confirm-modal .modal-body {
+  padding: 1rem 1.25rem;
+  color: var(--dark);
+}
+
+.admin-confirm-modal .modal-footer {
+  padding: 0.75rem 1.25rem 1.25rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.confirm-actions .btn {
+  padding: 0.5rem 0.9rem;
+}
+
 .calendar-card {
   background: white;
   padding: 1.5rem;
