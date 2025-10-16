@@ -4,11 +4,12 @@ import { db } from "../firebase";
 import { Timestamp } from "firebase/firestore";
 import './modalstyles/TeamEditorModalStyles.css';
 
+// Display labels only; keys must remain the same for Firestore compatibility
 const roleLabels = {
   teamLeader: 'Team Leader',
+  ambulanceDriver: 'Ambulance Operator', // keep key ambulanceDriver
   emt1: 'EMT 1',
-  emt2: 'EMT 2',
-  ambulanceDriver: 'Ambulance Driver'
+  emt2: 'EMT 2'
 };
 
 export default function TeamEditorModal({
@@ -66,10 +67,35 @@ export default function TeamEditorModal({
         .filter(responder => responder?.uid)
         .map(responder => responder.uid)
     );
-    
-    return getFilteredResponders().filter(responder => 
-      !assignedUids.has(responder.uid)
-    );
+
+    // Optional: prefer responders whose shift window matches the selected shift
+    const withinShift = (responder) => {
+      if (!responder) return false;
+      const toDate = (ts) => {
+        try {
+          if (ts && typeof ts.toDate === 'function') return ts.toDate();
+          if (ts instanceof Date) return ts;
+          const d = new Date(ts);
+          return isNaN(d.getTime()) ? null : d;
+        } catch {
+          return null;
+        }
+      };
+      const now = new Date();
+      const start = toDate(responder.shiftStart);
+      const end = toDate(responder.shiftEnd);
+      if (!start || !end) return true; // if no window, consider available
+      return now >= start && now <= end;
+    };
+
+    const filtered = getFilteredResponders().filter(responder => !assignedUids.has(responder.uid));
+
+    // Sort so in-window responders appear first
+    return filtered.sort((a, b) => {
+      const aIn = withinShift(a) ? 1 : 0;
+      const bIn = withinShift(b) ? 1 : 0;
+      return bIn - aIn;
+    });
   };
 
   const handleDragStart = (e, responder, source = 'unassigned') => {

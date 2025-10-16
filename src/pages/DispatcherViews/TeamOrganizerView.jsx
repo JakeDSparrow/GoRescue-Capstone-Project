@@ -3,11 +3,12 @@ import TeamEditorModal from '../../components/TeamEditorModal';
 import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
+// Display labels only; keys must remain unchanged for Firestore
 const roleLabels = {
   teamLeader: 'Team Leader',
+  ambulanceDriver: 'Ambulance Operator', // keep key ambulanceDriver
   emt1: 'EMT 1',
   emt2: 'EMT 2',
-  ambulanceDriver: 'Ambulance Driver',
 };
 
 const defaultShift = {
@@ -270,11 +271,16 @@ export default function TeamOrganizerView() {
       const teamId = docId;
       const updates = [];
 
+      // Pull shift window from the data we just saved (TeamEditorModal provides these)
+      const shiftStart = shiftToSave.shiftStart || null;
+      const shiftEnd = shiftToSave.shiftEnd || null;
+
       // Users newly assigned → set teamId
       newAssignedUids.forEach(uid => {
         if (!prevAssignedUids.has(uid)) {
           const userRef = doc(db, 'mdrrmo-users', uid);
-          updates.push(updateDoc(userRef, { teamId }));
+          // Also store shift window for availability checks elsewhere
+          updates.push(updateDoc(userRef, { teamId, shiftStart, shiftEnd }));
         }
       });
 
@@ -282,7 +288,7 @@ export default function TeamOrganizerView() {
       prevAssignedUids.forEach(uid => {
         if (!newAssignedUids.has(uid)) {
           const userRef = doc(db, 'mdrrmo-users', uid);
-          updates.push(updateDoc(userRef, { teamId: null }));
+          updates.push(updateDoc(userRef, { teamId: null, shiftStart: null, shiftEnd: null }));
         }
       });
 

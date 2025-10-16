@@ -659,6 +659,15 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
     // New: drive in-app notifications via assignedResponderUids
     const assignedResponderUids = Array.from(new Set(allMembers.map(m => m.uid)));
 
+    // choose primary team (first selected) and its leader uid
+    const primaryTeamId = form.respondingTeams[0] || null;
+    let teamLeaderUid = null;
+    if (primaryTeamId) {
+      const [teamKey, shiftKey] = primaryTeamId.split('-');
+      const teamDetails = teams[teamKey] && teams[teamKey][shiftKey];
+      teamLeaderUid = teamDetails?.teamLeader?.uid || null;
+    }
+
     const incidentData = {
       incidentCode: form.incidentCode,
       emergencyType: categoryCodeToType(form.emergencyCategory),
@@ -682,7 +691,10 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
       createdBy: currentUser?.uid || null,
       createdByName: currentUserFullName || 'Unknown User',
       createdAt: new Date().toISOString(),
-      assignedResponderUids,                     // <-- key for mobile in-app notifications
+      assignedResponderUids, 
+      assignedTeamId: primaryTeamId,
+      teamLeaderUid: teamLeaderUid,
+      assignedResponderUids: teamLeaderUid ? [teamLeaderUid] : [],                    // <-- key for mobile in-app notifications
     };
 
     let savedReport;

@@ -11,6 +11,7 @@ import UsersView from './AdminViews/UsersView';
 import SettingsView from './AdminViews/SettingsView';
 import Logo from '../assets/GoRescueLogo.webp';
 import "../pages/AdminViews/AdminStyle/AdminPage.css";
+import PrivacyPolicyModal from '../components/PrivacyPolicyModal';
 
 const AdminDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -18,6 +19,7 @@ const AdminDashboard = () => {
   const [activeView, setActiveView] = useState('dashboard-view');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [now, setNow] = useState(new Date());
+  const [showPrivacy, setShowPrivacy] = useState(false);
 
   const navigate = useNavigate();
 
@@ -180,6 +182,21 @@ const AdminDashboard = () => {
               <span>Settings</span>
             </button>
           </nav>
+          <div className="sidebar-footer" style={{ marginTop: 'auto', padding: '12px 16px', fontSize: '0.95rem' }}>
+            <button
+              onClick={() => setShowPrivacy(true)}
+              style={{
+                color: '#2563eb',
+                fontWeight: 600,
+                background: 'none',
+                border: 0,
+                padding: 0,
+                cursor: 'pointer'
+              }}
+            >
+              Privacy Policy
+            </button>
+          </div>
         </div>
 
         {/* Main Content Views */}
@@ -207,6 +224,9 @@ const AdminDashboard = () => {
             </div>
           </div>
         </div>
+      )}
+      {showPrivacy && (
+        <PrivacyPolicyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
       )}
     </div>
   );

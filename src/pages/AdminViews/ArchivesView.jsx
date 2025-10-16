@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, orderBy, query, doc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, orderBy, query, doc, deleteDoc, where, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase';
 import ViewModal from '../../components/ViewModal';
 
@@ -30,6 +30,8 @@ const ArchivesView = () => {
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [incidentToDelete, setIncidentToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     const unsubInc = onSnapshot(
@@ -257,8 +259,34 @@ const ArchivesView = () => {
       )}
 
       {confirmOpen && incidentToDelete && (
-        <div className="admin-confirm-overlay" role="dialog" aria-modal="true">
-          <div className="admin-confirm-modal">
+        <div
+          className="admin-confirm-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setConfirmOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 16,
+          }}
+        >
+          <div
+            className="admin-confirm-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 520,
+              background: '#ffffff',
+              borderRadius: 8,
+              boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
+              overflow: 'hidden',
+            }}
+          >
             <div className="modal-header">
               <h3>Delete Incident</h3>
               <button className="close-btn" onClick={() => setConfirmOpen(false)} aria-label="Close">&times;</button>
@@ -273,20 +301,50 @@ const ArchivesView = () => {
               <button className="btn btn-outline" onClick={() => setConfirmOpen(false)}>Cancel</button>
               <button
                 className="btn btn-danger"
+                disabled={deleting}
                 onClick={async () => {
+                  if (!incidentToDelete) return;
+                  setDeleteError('');
+                  setDeleting(true);
                   try {
-                    await deleteDoc(doc(db, 'incidents', incidentToDelete.id));
+                    const incidentId = incidentToDelete.id;
+                    const reportId = incidentToDelete.reportId || incidentId;
+
+                    // 1) Delete related saved_documents by missionId or reportId
+                    const docsRef = collection(db, 'saved_documents');
+                    const q1 = query(docsRef, where('missionId', '==', incidentId));
+                    const q2 = query(docsRef, where('reportId', '==', reportId));
+                    const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+
+                    const toDelete = new Map();
+                    snap1.forEach(d => toDelete.set(d.id, d.id));
+                    snap2.forEach(d => toDelete.set(d.id, d.id));
+
+                    const deletePromises = Array.from(toDelete.values()).map((docId) => deleteDoc(doc(db, 'saved_documents', docId)));
+                    if (deletePromises.length) {
+                      await Promise.allSettled(deletePromises);
+                    }
+
+                    // 2) Delete the incident itself
+                    await deleteDoc(doc(db, 'incidents', incidentId));
                     setConfirmOpen(false);
                     setIncidentToDelete(null);
                   } catch (e) {
-                    console.error('Failed to delete incident', e);
-                    alert('Failed to delete incident');
+                    console.error('Failed to delete incident and related documents', e);
+                    setDeleteError('Failed to delete. Please try again.');
+                  } finally {
+                    setDeleting(false);
                   }
                 }}
               >
-                <i className="fas fa-trash"></i> Delete
+                {deleting ? (<><i className="fas fa-spinner fa-spin"></i> Deleting...</>) : (<><i className="fas fa-trash"></i> Delete</>)}
               </button>
             </div>
+            {deleteError && (
+              <div style={{ color: '#b91c1c', margin: '8px 16px 16px' }}>
+                <i className="fas fa-exclamation-circle"></i> {deleteError}
+              </div>
+            )}
           </div>
         </div>
       )}

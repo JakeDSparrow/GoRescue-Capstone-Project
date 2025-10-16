@@ -15,6 +15,7 @@ import CreateRescueModal from '../components/CreateReportModal';
 import Logo from '../assets/GoRescueLogo.webp';
 import L from 'leaflet';
 import { emergencySeverityMap } from '../constants/dispatchConstants';
+import PrivacyPolicyModal from '../components/PrivacyPolicyModal';
 
 
 export default function DispatcherPage() {
@@ -56,6 +57,7 @@ export default function DispatcherPage() {
   const [toasts, setToasts] = useState([]);
   const [mapCleanupInfo, setMapCleanupInfo] = useState(null);
   const lastIncidentStatusRef = useRef({});
+  const [showPrivacy, setShowPrivacy] = useState(false);
 
   const showToast = (payload) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -739,6 +741,21 @@ useEffect(() => {
               </div>
             ))}
           </div>
+          <div className="sidebar-footer" style={{ marginTop: 'auto', padding: '12px 16px', fontSize: '0.95rem' }}>
+            <button
+              onClick={() => setShowPrivacy(true)}
+              style={{
+                color: '#2563eb',
+                fontWeight: 600,
+                background: 'none',
+                border: 0,
+                padding: 0,
+                cursor: 'pointer'
+              }}
+            >
+              Privacy Policy
+            </button>
+          </div>
         </div>
 
         {/* Sidebar backdrop for mobile/tablet */}
@@ -830,6 +847,10 @@ useEffect(() => {
               </div>
             </div>
           </div>
+        )}
+
+        {showPrivacy && (
+          <PrivacyPolicyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
         )}
 
         {/* Toasts */}

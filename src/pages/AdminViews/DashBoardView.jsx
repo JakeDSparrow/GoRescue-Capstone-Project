@@ -35,6 +35,11 @@ const DashboardView = () => {
   // Monthly inputs
   const [monthlyYearFilter, setMonthlyYearFilter] = useState('all');
   const [monthlyStatusFilter, setMonthlyStatusFilter] = useState('all'); // all|resolved|pending|dispatched|responding
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const d = new Date();
+    d.setDate(1); d.setHours(0,0,0,0);
+    return d.toISOString().slice(0,7); // YYYY-MM
+  });
 
   // Helpers
   const toDate = useCallback((value) => {
@@ -114,21 +119,23 @@ const DashboardView = () => {
 
     const today = startOfDay(new Date());
 
+    const statusOf = (i) => String(i.status || '').toLowerCase();
+
     const todayIncidents = incidents.filter(incident => {
       const d = toDate(incident.timestamp || incident.createdAt || incident.reportedAt);
       if (!d) return false;
       return startOfDay(d).getTime() === today.getTime();
     });
 
-    const pendingCount = incidents.filter(incident =>
-      incident.status === 'pending' ||
-      incident.status === 'dispatched' ||
-      incident.status === 'responding'
-    ).length;
+    const pendingCount = incidents.filter(incident => {
+      const s = statusOf(incident);
+      return s === 'pending' || s === 'dispatched' || s === 'responding';
+    }).length;
 
-    const activeIncidents = incidents.filter(incident =>
-      incident.status === 'dispatched' || incident.status === 'responding'
-    );
+    const activeIncidents = incidents.filter(incident => {
+      const s = statusOf(incident);
+      return s === 'dispatched' || s === 'responding';
+    });
 
     const activeTeams = new Set(
       activeIncidents
@@ -152,11 +159,26 @@ const DashboardView = () => {
       activeRespondersCount = activeTeams.size * 3;
     }
 
-    const resolvedToday = todayIncidents.filter(i => i.status === 'resolved').length;
+    const resolvedToday = todayIncidents.filter(i => statusOf(i) === 'resolved').length;
+    // Month filter window
+    const [y, m] = selectedMonth.split('-').map(n => parseInt(n, 10));
+    const monthStartSel = new Date(y, m - 1, 1, 0, 0, 0, 0);
+    const monthEndSel = new Date(y, m, 1, 0, 0, 0, 0);
+
+    const inSelectedMonth = (i) => {
+      const d = toDate(i.timestamp || i.createdAt || i.reportedAt);
+      if (!d) return false;
+      return d >= monthStartSel && d < monthEndSel;
+    };
+
+    const incidentsInMonth = incidents.filter(inSelectedMonth);
+    const criticalInMonth = incidentsInMonth.filter(i => String(i.emergencySeverity || i.severity || '').toLowerCase() === 'critical').length;
+    const resolvedInMonth = incidentsInMonth.filter(i => statusOf(i) === 'resolved').length;
+
     setRealTimeData({
       activeResponders: activeRespondersCount,
-      pendingRequests: pendingCount,
-      resolvedToday
+      criticalIncidents: criticalInMonth,
+      resolvedThisMonth: resolvedInMonth
     });
 
     // Recent activities
@@ -166,12 +188,12 @@ const DashboardView = () => {
       .slice(0, 10)
       .map(incident => ({
         time: getTimeAgo(incident.timestamp || incident.createdAt || incident.reportedAt),
-        description: `${incident.status === 'pending' ? 'New emergency report' :
-          incident.status === 'dispatched' ? 'Team dispatched' :
-          incident.status === 'responding' ? 'Team responding' :
-          incident.status === 'resolved' ? 'Emergency resolved' : 'Status updated'} - ${incident.reporter || incident.reporterName || 'Unknown'}`,
-        type: getActivityType(incident.status, incident.emergencySeverity || incident.severity),
-        icon: getActivityIcon(incident.status, incident.emergencySeverity || incident.severity),
+        description: `${statusOf(incident) === 'pending' ? 'New emergency report' :
+          statusOf(incident) === 'dispatched' ? 'Team dispatched' :
+          statusOf(incident) === 'responding' ? 'Team responding' :
+          statusOf(incident) === 'resolved' ? 'Emergency resolved' : 'Status updated'} - ${incident.reporter || incident.reporterName || 'Unknown'}`,
+        type: getActivityType(statusOf(incident), incident.emergencySeverity || incident.severity),
+        icon: getActivityIcon(statusOf(incident), incident.emergencySeverity || incident.severity),
         reportId: incident.reportId || incident.id,
         severity: incident.emergencySeverity || incident.severity
       }));
@@ -186,7 +208,7 @@ const DashboardView = () => {
     const severityColors = {
       critical: '#ef4444',
       high: '#f97316',
-      medium: '#eab308',
+      moderate: '#eab308',
       low: '#22c55e',
       unknown: '#6b7280'
     };
@@ -196,6 +218,33 @@ const DashboardView = () => {
       color: severityColors[severity] || '#6b7280'
     }));
     setIncidentData(incidentChartData);
+
+    // Incidents by Type (e.g., medical, accident, natural)
+    const typeCounts = incidents.reduce((acc, incident) => {
+      const t = String(incident.emergencyType || incident.type || 'unknown').toLowerCase();
+      acc[t] = (acc[t] || 0) + 1;
+      return acc;
+    }, {});
+    const typeColors = {
+      medical: '#2563eb',
+      accident: '#10b981',
+      natural: '#a855f7',
+      unknown: '#6b7280'
+    };
+    const incidentTypeData = Object.entries(typeCounts).map(([type, count]) => ({
+      name: type.charAt(0).toUpperCase() + type.slice(1),
+      value: count,
+      color: typeColors[type] || '#6b7280'
+    }));
+    // Store alongside severity data
+    // Reuse monthlyData state? Keep separate using local variable for rendering
+    // We'll pass through closure below
+    setMonthlyData(prev => prev); // no-op to keep dependencies
+    
+    // Attach to ref via closure by replacing setIncidentData usage in render
+    // We'll augment render to compute from local scope
+    
+    // Weekly trend (last 7 days)
 
     // Monthly grouped with year (unfiltered base)
     const monthlyStatsMap = incidents.reduce((acc, i) => {
@@ -211,52 +260,103 @@ const DashboardView = () => {
     }, {});
     setMonthlyData(Object.values(monthlyStatsMap));
 
-    // Weekly trend (last 7 days)
-    const weeklyStats = Array.from({ length: 7 }, (_, i) => {
+    // Monthly trend (last 12 months)
+    const monthlyTrend = Array.from({ length: 12 }, (_, i) => {
       const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dayStart = startOfDay(d).getTime();
-      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-      const dayIncidents = incidents.filter(incident => {
+      // Go back i months from current month
+      d.setDate(1);
+      d.setHours(0, 0, 0, 0);
+      d.setMonth(d.getMonth() - (11 - i));
+      const monthStart = new Date(d);
+      const monthEnd = new Date(d);
+      monthEnd.setMonth(monthEnd.getMonth() + 1);
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+      const monthIncidents = incidents.filter(incident => {
         const idate = toDate(incident.timestamp || incident.createdAt || incident.reportedAt);
         if (!idate) return false;
-        return startOfDay(idate).getTime() === dayStart;
+        return idate >= monthStart && idate < monthEnd;
       });
+
       return {
-        day: dayName,
-        incidents: dayIncidents.length,
-        responses: dayIncidents.filter(incident => incident.status !== 'pending').length
+        month: label,
+        incidents: monthIncidents.length,
+        responses: monthIncidents.filter(incident => statusOf(incident) !== 'pending').length
       };
-    }).reverse();
-    setWeeklyTrendData(weeklyStats);
+    });
+    setWeeklyTrendData(monthlyTrend);
+
+    // Expose type data for render via state setter pattern
+    setIncidentData(prev => prev); // no-op
+    // Stash computed type data on an instance variable (closure). We'll render inline to avoid new state.
+    DashboardView._lastIncidentTypeData = incidentTypeData;
   }, [incidents, users, loading, getActivityIcon, getActivityType, getTimeAgo, startOfDay, toDate]);
 
   const statsData = useMemo(() => ([
     {
       icon: 'ambulance',
       label: 'Active Responders',
-      value: String(realTimeData.activeResponders),
-      trend: '0%',
+      value: String(realTimeData.activeResponders || 0),
+      trend: '—',
       positive: true,
       description: 'Currently responding to emergencies'
     },
     {
-      icon: 'clock',
-      label: 'Pending Requests',
-      value: String(realTimeData.pendingRequests),
-      trend: '0%',
-      positive: realTimeData.pendingRequests === 0,
-      description: 'Awaiting response or in progress'
+      icon: 'exclamation-triangle',
+      label: 'Critical Incidents',
+      value: String(realTimeData.criticalIncidents || 0),
+      trend: '—',
+      positive: false,
+      description: 'In the selected month'
     },
     {
       icon: 'check-circle',
-      label: 'Resolved Today',
-      value: String(realTimeData.resolvedToday),
-      trend: '0%',
+      label: 'Resolved This Month',
+      value: String(realTimeData.resolvedThisMonth || 0),
+      trend: '—',
       positive: true,
-      description: 'Successfully completed today'
+      description: 'Completed in the selected month'
     }
   ]), [realTimeData]);
+
+  // Build a simple month calendar grid for the selected month with incident counts
+  const monthCalendar = useMemo(() => {
+    try {
+      if (!selectedMonth) return { weeks: [] };
+      const [y, m] = selectedMonth.split('-').map(n => parseInt(n, 10));
+      const firstOfMonth = new Date(y, m - 1, 1);
+      const daysInMonth = new Date(y, m, 0).getDate();
+      const startWeekday = firstOfMonth.getDay(); // 0=Sun
+
+      const counts = new Map();
+      const monthStart = new Date(y, m - 1, 1, 0, 0, 0, 0);
+      const monthEnd = new Date(y, m, 1, 0, 0, 0, 0);
+      incidents.forEach(i => {
+        const d = toDate(i.timestamp || i.createdAt || i.reportedAt);
+        if (!d || d < monthStart || d >= monthEnd) return;
+        const key = d.getDate();
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+
+      const cells = [];
+      // leading blanks
+      for (let i = 0; i < startWeekday; i++) cells.push({ type: 'blank' });
+      // days
+      for (let day = 1; day <= daysInMonth; day++) {
+        cells.push({ type: 'day', day, count: counts.get(day) || 0 });
+      }
+      // pad to full weeks
+      while (cells.length % 7 !== 0) cells.push({ type: 'blank' });
+
+      const weeks = [];
+      for (let i = 0; i < cells.length; i += 7) {
+        weeks.push(cells.slice(i, i + 7));
+      }
+      return { weeks };
+    } catch {
+      return { weeks: [] };
+    }
+  }, [incidents, selectedMonth, toDate]);
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -298,8 +398,8 @@ const DashboardView = () => {
         </div>
       )}
 
-      {/* === TOP STATS === */}
-      <div className="stats-grid">
+      {/* === TOP STATS + MONTH PICKER === */}
+      <div className="stats-grid" style={{ alignItems: 'stretch' }}>
         {statsData.map((stat) => (
           <div className="stat-card" key={stat.label}>
             <div className="stat-header">
@@ -321,6 +421,70 @@ const DashboardView = () => {
             </div>
           </div>
         ))}
+        <div className="stat-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div className="stat-label" style={{ marginBottom: 8 }}>
+              <i className="fas fa-calendar-alt"></i> Select Month
+            </div>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #d1d5db' }}
+              aria-label="Select month for insights"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* === MINI CALENDAR (Selected Month) === */}
+      <div className="stats-grid" style={{ marginTop: 16 }}>
+        <div className="stat-card" style={{ gridColumn: '1 / -1' }}>
+          <div className="stat-header" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div className="stat-label">
+                <i className="fas fa-calendar-alt"></i> {new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              </div>
+              <div className="stat-description">Daily incident counts</div>
+            </div>
+          </div>
+          <div style={{ padding: '12px 4px 16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, padding: '0 8px', marginBottom: 6, color: 'var(--gray)', fontWeight: 600, fontSize: '0.85rem' }}>
+              {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (<div key={d} style={{ textAlign: 'center' }}>{d}</div>))}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, padding: '0 8px' }}>
+              {monthCalendar.weeks.flat().map((cell, idx) => (
+                <div key={idx} style={{
+                  minHeight: 56,
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 8,
+                  background: cell.type === 'day' ? '#fff' : 'transparent',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: cell.type === 'day' ? '#111827' : 'transparent'
+                }}>
+                  {cell.type === 'day' && (
+                    <>
+                      <div style={{ fontWeight: 600 }}>{cell.day}</div>
+                      {cell.count > 0 && (
+                        <div style={{
+                          marginTop: 4,
+                          fontSize: '0.75rem',
+                          background: '#2563eb',
+                          color: 'white',
+                          padding: '2px 6px',
+                          borderRadius: 999
+                        }}>{cell.count}</div>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* === MIDDLE GRID === */}
@@ -410,17 +574,40 @@ const DashboardView = () => {
                   )}
                 </div>
 
-                
+                <div className="chart-block">
+                  <h4>Incidents by Type</h4>
+                  {(!DashboardView._lastIncidentTypeData || DashboardView._lastIncidentTypeData.length === 0) ? (
+                    <p className="empty-state">No data</p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={250}>
+                      <PieChart>
+                        <Pie
+                          dataKey="value"
+                          data={DashboardView._lastIncidentTypeData}
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={80}
+                          label={({ name, percent }) => `${name} ${Number.isFinite(percent) ? (percent * 100).toFixed(0) : 0}%`}
+                        >
+                          {DashboardView._lastIncidentTypeData.map((entry, index) => (
+                            <Cell key={`type-cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip content={<CustomTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="chart-block">
-                <h4>Weekly Response Trends</h4>
+                <h4>Monthly Response Trends</h4>
                 {weeklyTrendData.length === 0 ? (
                   <p className="empty-state">No data</p>
                 ) : (
                   <ResponsiveContainer width="100%" height={300}>
                     <AreaChart data={weeklyTrendData}>
-                      <XAxis dataKey="day" />
+                      <XAxis dataKey="month" />
                       <YAxis />
                       <Tooltip content={<CustomTooltip />} />
                       <Area
@@ -448,33 +635,7 @@ const DashboardView = () => {
         </div>
       </div>
 
-      {/* === CALENDAR SECTION === */}
-      <div className="calendar-controls">
-        <div className="calendar-range">
-          <i className="fas fa-calendar-alt"></i> Week of {currentWeekStart.toLocaleDateString()} - {currentWeekEnd.toLocaleDateString()}
-        </div>
-        <div className="calendar-actions"></div>
-      </div>
-
-      <div className="calendar-card">
-        <div className="calendar-nav">
-          <button className="calendar-nav-btn" onClick={() => changeWeek(-1)}>
-            <i className="fas fa-chevron-left"></i>
-          </button>
-          <button className="today-btn" onClick={() => changeWeek(0)}>
-            Today
-          </button>
-          <button className="calendar-nav-btn" onClick={() => changeWeek(1)}>
-            <i className="fas fa-chevron-right"></i>
-          </button>
-        </div>
-        <div className="week-grid">
-          {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day) => (
-            <div key={day} className="week-day-header">{day}</div>
-          ))}
-          {renderWeekDays()}
-        </div>
-      </div>
+      {/* Calendar section removed to align with monthly trends */}
     </div>
   );
 };

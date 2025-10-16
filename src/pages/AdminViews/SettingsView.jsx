@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../../firebase';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 
 const SettingsView = () => {
   // Appearance
@@ -24,6 +24,7 @@ const SettingsView = () => {
   });
   const [saving, setSaving] = useState(false);
   const [savedTick, setSavedTick] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   // Apply theme
   useEffect(() => {
@@ -47,40 +48,55 @@ const SettingsView = () => {
     try { localStorage.setItem('admin_dark_mode', JSON.stringify(darkMode)); } catch {}
   }, [darkMode]);
 
-  // Load settings from Firestore
+  // Load settings from Firestore (live) with localStorage fallback
   useEffect(() => {
-    const load = async () => {
-      try {
-        const ref = doc(db, 'app_settings', 'global');
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          const data = snap.data();
-          setDocSettings(prev => ({
-            ...prev,
-            retentionDays: Number(data.retentionDays ?? prev.retentionDays),
-            autoGeneratePdf: Boolean(data.autoGeneratePdf ?? prev.autoGeneratePdf),
-            autoDeleteEnabled: Boolean(data.autoDeleteEnabled ?? prev.autoDeleteEnabled),
-            autoArchiveEnabled: Boolean(data.autoArchiveEnabled ?? prev.autoArchiveEnabled),
-          }));
-        }
-      } catch (e) {
-        console.error('Failed to load app settings', e);
+    const ref = doc(db, 'app_settings', 'global');
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setDocSettings(prev => ({
+          ...prev,
+          retentionDays: Number(data.retentionDays ?? prev.retentionDays),
+          autoGeneratePdf: Boolean(data.autoGeneratePdf ?? prev.autoGeneratePdf),
+          autoDeleteEnabled: Boolean(data.autoDeleteEnabled ?? prev.autoDeleteEnabled),
+          autoArchiveEnabled: Boolean(data.autoArchiveEnabled ?? prev.autoArchiveEnabled),
+        }));
+        try { localStorage.setItem('admin_doc_settings', JSON.stringify(data)); } catch {}
+      } else {
+        // If no doc yet, try to seed from localStorage
+        try {
+          const stored = localStorage.getItem('admin_doc_settings');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            setDocSettings(prev => ({
+              ...prev,
+              retentionDays: Number(parsed.retentionDays ?? prev.retentionDays),
+              autoGeneratePdf: Boolean(parsed.autoGeneratePdf ?? prev.autoGeneratePdf),
+              autoDeleteEnabled: Boolean(parsed.autoDeleteEnabled ?? prev.autoDeleteEnabled),
+              autoArchiveEnabled: Boolean(parsed.autoArchiveEnabled ?? prev.autoArchiveEnabled),
+            }));
+          }
+        } catch {}
       }
-    };
-    load();
-  }, []);
+    }, (e) => {
+      console.error('Failed to subscribe to app settings', e);
+    });
+    return () => unsub();
+  }, [db]);
 
   // Persist settings to Firestore (debounced by quick save indicator)
   const persistSettings = async (next) => {
     try {
       setSaving(true);
+      setSaveError('');
       const ref = doc(db, 'app_settings', 'global');
       await setDoc(ref, next, { merge: true });
       setSavedTick(true);
       setTimeout(() => setSavedTick(false), 1000);
+      try { localStorage.setItem('admin_doc_settings', JSON.stringify(next)); } catch {}
     } catch (e) {
       console.error('Failed to save app settings', e);
-      alert('Failed to save settings');
+      setSaveError('Failed to save settings. Please check your connection and permissions.');
     } finally {
       setSaving(false);
     }
@@ -105,6 +121,11 @@ const SettingsView = () => {
           <span style={{ fontSize: '0.9rem', color: '#059669' }}><i className="fas fa-check"></i> Saved</span>
         ) : null}
       </div>
+      {saveError && (
+        <div style={{ marginTop: 8, color: '#b91c1c', fontSize: '0.9rem' }}>
+          <i className="fas fa-exclamation-circle"></i> {saveError}
+        </div>
+      )}
 
       {/* Documents & PDFs Section */}
       <div className="settings-section">
