@@ -190,6 +190,7 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
   const [mapCenter, setMapCenter] = useState({ lat: 16.2304, lng: 120.4822 }); // Victoria, Tarlac
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [currentUserFullName, setCurrentUserFullName] = useState('');
+  const [busyTeamIds, setBusyTeamIds] = useState(new Set());
   
   // Refs for Google Maps components
   const mapRef = useRef(null);
@@ -460,6 +461,29 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
             .map(doc => ({ uid: doc.id, ...doc.data() }))
             .filter(isResponderAvailable),
         );
+
+        // Fetch active incidents to determine busy teams
+        try {
+          const incidentsRef = collection(db, 'incidents');
+          const incidentsSnap = await getDocs(incidentsRef);
+          const activeIds = new Set();
+          incidentsSnap.forEach((d) => {
+            const data = d.data() || {};
+            const status = String(data.status || '').toLowerCase();
+            if (status && status !== 'completed' && status !== 'cancelled') {
+              if (Array.isArray(data.respondingTeams)) {
+                data.respondingTeams.forEach((tid) => { if (tid) activeIds.add(tid); });
+              }
+              if (data.assignedTeamId) {
+                activeIds.add(data.assignedTeamId);
+              }
+            }
+          });
+          setBusyTeamIds(activeIds);
+        } catch (e) {
+          console.warn('Failed to load active teams from incidents', e);
+          setBusyTeamIds(new Set());
+        }
       } catch (err) {
         console.error('Failed to fetch teams or responders:', err);
         setStatusMessage('Error loading teams data. Please refresh and try again.');
@@ -945,10 +969,13 @@ const CreateRescueModal = ({ isOpen, onClose, onReportCreated, reportToEdit }) =
                           type="checkbox"
                           checked={form.respondingTeams.includes(`${teamKey}-${shiftKey}`)}
                           onChange={(e) => handleTeamChange(`${teamKey}-${shiftKey}`, e.target.checked)}
-                          disabled={isEditing || loading}
+                          disabled={isEditing || loading || busyTeamIds.has(`${teamKey}-${shiftKey}`)}
                         />
                         <span className="checkbox-text">
                           {teamKey.toUpperCase()} - {shiftKey === 'dayShift' ? 'Day Shift' : 'Night Shift'}
+                          {busyTeamIds.has(`${teamKey}-${shiftKey}`) && (
+                            <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#b45309' }} title="Team currently on a mission">(On mission)</span>
+                          )}
                         </span>
                       </label>
                     </div>
